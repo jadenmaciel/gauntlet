@@ -1,0 +1,58 @@
+# golangci-lint v2-schema fragment: cyclop in tests
+#
+# This is a fragment, not a full config. Merge the `linters:` keys below
+# into your repo's real .golangci.yml (which must already declare
+# `version: "2"` at the top level — don't add a second `version:` key).
+# Do not overwrite an existing `enable:` or `exclusions.rules:` list —
+# merge these entries into it.
+
+version: "2"
+
+linters:
+  # cyclop and funlen must already be enabled for the exclusions below to
+  # matter. Listed here for a self-contained fragment; skip this if your
+  # repo enables them elsewhere already.
+  enable:
+    - cyclop
+    - funlen
+
+  settings:
+    cyclop:
+      max-complexity: 15
+      # cyclop also has its own `skip-tests` setting (default false). Leave
+      # it false/unset here — setting it true would exempt _test.go from
+      # cyclop independently of the exclusions.rules entry below, silently
+      # undoing the change this fragment makes.
+      skip-tests: false
+
+  exclusions:
+    rules:
+      # cyclop: no _test.go exclusion here. This is the change.
+      #
+      # A default golangci-lint config commonly ships an entry like:
+      #
+      #   - linters:
+      #       - cyclop
+      #     path: _test\.go
+      #
+      # Delete that entry if present. Do not re-add it below.
+      #
+      # Why: a test function that trips cyclop is usually branching
+      # internally (if/switch/&&/||) instead of asserting one behavior per
+      # test. Internal branching lets the test pass while only one branch
+      # actually runs on a given execution — the other branch's behavior
+      # goes unchecked, so a regression in it ships green. Keeping cyclop
+      # on for tests forces that branch out into a separate test (or
+      # subtest), so each behavior is asserted, and failable, on its own.
+
+      # funlen: keep the _test.go exclusion.
+      #
+      # Table-driven tests are idiomatic Go: one test function holding a
+      # `tests := []struct{...}{...}` table and a `for _, tt := range
+      # tests` loop. Line count grows with the number of cases, not with
+      # how much the function does per case — a different axis than the
+      # branching cyclop measures — so funlen's length limit isn't a
+      # useful signal for this shape of test.
+      - linters:
+          - funlen
+        path: _test\.go

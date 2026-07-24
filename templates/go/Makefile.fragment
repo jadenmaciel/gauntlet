@@ -1,0 +1,49 @@
+# Makefile fragment: crap4go + gremlins mutation testing + pinned tools
+#
+# Copy the pieces you need into your repo's real Makefile. Variable names
+# (BIN_DIR, BASE_BRANCH, THRESHOLDS_FILE, module paths) are placeholders —
+# match them to what your repo already uses before pasting.
+
+BIN_DIR ?= bin
+BASE_BRANCH ?= main
+
+# Ceiling/floor come from gauntlet's nested thresholds YAML.
+THRESHOLDS_FILE ?= .gauntlet/thresholds.yml
+COVER_PROFILE ?= coverage.out
+CRAP_CEILING := $(shell awk '/^  crap_ceiling:/{found=1; next} found && /^    value:/{print $$2; exit}' $(THRESHOLDS_FILE))
+MCOVER_FLOOR := $(shell awk '/^  mutation_mcover:/{found=1; next} found && /^    value:/{print $$2; exit}' $(THRESHOLDS_FILE))
+
+# Pin these to a tagged release once one exists; @latest is a placeholder,
+# not a recommendation to stay floating.
+CRAP4GO_VERSION ?= latest
+GAUNTLET_VERSION ?= latest
+GREMLINS_VERSION ?= latest
+
+.PHONY: gauntlet-tools
+gauntlet-tools:
+	GOBIN=$(abspath $(BIN_DIR)) go install github.com/jadenmaciel/gauntlet/cmd/crap4go@$(CRAP4GO_VERSION)
+	GOBIN=$(abspath $(BIN_DIR)) go install github.com/jadenmaciel/gauntlet/cmd/gauntlet@$(GAUNTLET_VERSION)
+	GOBIN=$(abspath $(BIN_DIR)) go install github.com/go-gremlins/gremlins@$(GREMLINS_VERSION)
+
+.PHONY: crap
+crap: cover gauntlet-tools
+	$(BIN_DIR)/crap4go --dir . --profile $(COVER_PROFILE) --ceiling $(CRAP_CEILING) --changed origin/$(BASE_BRANCH)
+
+.PHONY: mutation
+mutation: gauntlet-tools
+	$(BIN_DIR)/gremlins unleash \
+		--threshold-efficacy 95 \
+		--threshold-mcover $(MCOVER_FLOOR) \
+		--timeout-coefficient 50 \
+		--output mutation.json
+# timeout-coefficient 50 is a starting point, verified against this repo's
+# real measured mutation-run timeouts — not a gremlins default and not a
+# universal number. Re-measure and tune per repo: too low kills slow-but-
+# correct mutant runs as false timeouts; too high wastes CI time on
+# mutants that hang.
+
+# Add `crap` (and `mutation`, if run in CI rather than nightly) as a
+# prerequisite of this repo's existing check target:
+#
+# .PHONY: check
+# check: lint test crap
