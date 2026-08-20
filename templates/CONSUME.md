@@ -1,6 +1,6 @@
 # Add CRAP to a repo
 
-How to install the gauntlet CRAP gate in a new repo. Go is wired end-to-end today. Python, Rust, TypeScript, and PHP have scorer recipes in section 6 once their adapters merge. Every scorer uses the same formula in [docs/CRAP.md](../docs/CRAP.md).
+How to install the gauntlet CRAP gate in a new repo. Go is wired end-to-end today with a composite GitHub Action. Python, Rust, TypeScript, and PHP have scorer recipes in section 6. Every scorer uses the same formula in [docs/CRAP.md](../docs/CRAP.md).
 
 ## 1. Install the tools
 
@@ -12,6 +12,14 @@ go install github.com/jadenmaciel/gauntlet/cmd/gauntlet@v0.1.0
 ```
 
 On Cursor Cloud, call [templates/cursor/cloud-install-go.sh](cursor/cloud-install-go.sh) from `.cursor/environment.json` `install`. The default install directory is `$HOME/.local/bin`. Set `GAUNTLET_BIN_DIR=bin` to match a repo `bin/` directory.
+
+For Rust, copy [templates/rust/Makefile.fragment](rust/Makefile.fragment) into your Makefile. Set `GAUNTLET_VERSION` to a release that contains `crap4rs`. Then run:
+
+```bash
+make crap-rust GAUNTLET_VERSION=<release>
+```
+
+The target generates `cargo llvm-cov` JSON. It runs `bin/crap4rs` with `--ceiling` set from `.gauntlet/thresholds.yml`.
 
 ## 2. Set the ceiling from a measured baseline
 
@@ -75,7 +83,7 @@ Cloud is done when those three match CI, including a failing function failing th
 
 ## 6. Non-Go adapter recipes
 
-Only Go has a composite GitHub Action today. Each language below ships a Makefile fragment and scorer CLI in its adapter PR. Copy the fragment for repo wiring, generate real test coverage, then run the scorer. Policy E from section 2 applies: measure `summary.max_crap` on real coverage before the ceiling is a gate. Policy H in [docs/uncle-bob-negative-test-experiment.md](../docs/uncle-bob-negative-test-experiment.md) is linked documentation, not a product gate.
+Only Go has a composite GitHub Action today. Each language below ships a Makefile fragment and scorer CLI in this repo. Copy the fragment for repo wiring, generate real test coverage, then run the scorer. Policy E from section 2 applies: measure `summary.max_crap` on real coverage before the ceiling is a gate. Policy H in [docs/uncle-bob-negative-test-experiment.md](../docs/uncle-bob-negative-test-experiment.md) is linked documentation, not a product gate.
 
 ### Python (`crap4py`)
 

@@ -1,0 +1,15 @@
+[
+  {"name": "cc1-cov0", "complexity": 1, "coverage": 0, "crap": 2},
+  {"name": "cc1-cov100", "complexity": 1, "coverage": 100, "crap": 1},
+  {"name": "cc2-cov0", "complexity": 2, "coverage": 0, "crap": 6},
+  {"name": "cc3-cov50", "complexity": 3, "coverage": 50, "crap": 4.125},
+  {"name": "cc5-cov0", "complexity": 5, "coverage": 0, "crap": 30},
+  {"name": "cc5-cov50", "complexity": 5, "coverage": 50, "crap": 8.125},
+  {"name": "cc5-cov100", "complexity": 5, "coverage": 100, "crap": 5},
+  {"name": "cc8-cov100", "complexity": 8, "coverage": 100, "crap": 8},
+  {"name": "cc10-cov0", "complexity": 10, "coverage": 0, "crap": 110},
+  {"name": "cc10-cov80", "complexity": 10, "coverage": 80, "crap": 10.8},
+  {"name": "cc10-cov100", "complexity": 10, "coverage": 100, "crap": 10},
+  {"name": "cc15-cov100", "complexity": 15, "coverage": 100, "crap": 15},
+  {"name": "cc20-cov90", "complexity": 20, "coverage": 90, "crap": 20.4}
+]
