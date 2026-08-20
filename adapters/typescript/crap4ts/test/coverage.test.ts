@@ -61,3 +61,52 @@ end_of_record
 
   assert.equal(coverage.get("src/example.ts:2:Example.method"), 1);
 });
+
+test("Istanbul statements in nested functions do not affect parent coverage", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crap4ts-nested-"));
+  const coveragePath = path.join(dir, "coverage-final.json");
+  const parent: FunctionComplexity = {
+    file: "src/example.ts",
+    line: 1,
+    func: "parent",
+    complexity: 1,
+  };
+  const nested: FunctionComplexity = {
+    file: "src/example.ts",
+    line: 2,
+    func: "nested",
+    complexity: 1,
+  };
+  fs.writeFileSync(
+    coveragePath,
+    JSON.stringify({
+      [path.join(dir, "src/example.ts")]: {
+        fnMap: {
+          "0": {
+            name: "parent",
+            decl: { start: { line: 1, column: 16 }, end: { line: 1, column: 22 } },
+            loc: { start: { line: 1, column: 0 }, end: { line: 4, column: 1 } },
+          },
+          "1": {
+            name: "nested",
+            decl: { start: { line: 2, column: 8 }, end: { line: 2, column: 14 } },
+            loc: { start: { line: 2, column: 21 }, end: { line: 2, column: 36 } },
+          },
+        },
+        f: { "0": 1, "1": 1 },
+        statementMap: {
+          "0": { start: { line: 2, column: 2 }, end: { line: 2, column: 37 } },
+          "1": { start: { line: 2, column: 27 }, end: { line: 2, column: 35 } },
+          "2": { start: { line: 3, column: 2 }, end: { line: 3, column: 11 } },
+        },
+        s: { "0": 1, "1": 0, "2": 1 },
+      },
+    }),
+    "utf8",
+  );
+
+  const coverage = readCoverage(coveragePath, dir, [parent, nested]);
+
+  assert.equal(coverage.get("src/example.ts:1:parent"), 1);
+  assert.equal(coverage.get("src/example.ts:2:nested"), 0);
+});

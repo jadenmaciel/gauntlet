@@ -5,7 +5,7 @@ import ts from "typescript";
 import type { FunctionComplexity } from "./types.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts"]);
-const SKIP_DIRECTORIES = new Set([".git", "node_modules", "dist", "coverage"]);
+const SKIP_DIRECTORIES = new Set([".git", "__tests__", "node_modules", "dist", "coverage"]);
 
 export function scanComplexity(dir: string): FunctionComplexity[] {
   const absDir = path.resolve(dir);
@@ -68,7 +68,11 @@ function listSourceFiles(dir: string): string[] {
       if (!entry.isFile()) {
         continue;
       }
-      if (!SOURCE_EXTENSIONS.has(path.extname(entry.name)) || entry.name.endsWith(".d.ts")) {
+      if (
+        !SOURCE_EXTENSIONS.has(path.extname(entry.name)) ||
+        entry.name.endsWith(".d.ts") ||
+        isTestSourceFile(entry.name)
+      ) {
         continue;
       }
       results.push(fullPath);
@@ -76,6 +80,12 @@ function listSourceFiles(dir: string): string[] {
   }
 
   return results;
+}
+
+function isTestSourceFile(fileName: string): boolean {
+  const extension = path.extname(fileName);
+  const stem = fileName.slice(0, -extension.length);
+  return stem.endsWith(".test") || stem.endsWith(".spec");
 }
 
 function complexityFromFile(sourceFile: ts.SourceFile, relativeFile: string): FunctionComplexity[] {

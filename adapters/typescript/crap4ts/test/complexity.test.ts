@@ -74,3 +74,20 @@ test("invalid TypeScript fails the complexity scan", () => {
 
   assert.throws(() => scanComplexity(dir), /invalid\.ts:1:/);
 });
+
+test("test source files are excluded from complexity scans", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crap4ts-tests-"));
+  const testsDir = path.join(dir, "__tests__");
+  fs.mkdirSync(testsDir);
+  fs.writeFileSync(path.join(dir, "source.ts"), "export function source() { return 1; }", "utf8");
+  fs.writeFileSync(path.join(dir, "source.test.ts"), "export function unitTest() { return 1; }", "utf8");
+  fs.writeFileSync(path.join(dir, "source.spec.tsx"), "export function spec() { return 1; }", "utf8");
+  fs.writeFileSync(path.join(testsDir, "helper.ts"), "export function helper() { return 1; }", "utf8");
+
+  const functions = scanComplexity(dir);
+
+  assert.deepEqual(
+    functions.map((fn) => fn.func),
+    ["source"],
+  );
+});

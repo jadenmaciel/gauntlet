@@ -6,6 +6,7 @@ import type { FunctionComplexity } from "./types.js";
 
 interface Position {
   line: number;
+  column?: number;
 }
 
 interface SourceRange {
@@ -62,7 +63,10 @@ function readCoverageFinalJSON(
         continue;
       }
       const key = coverageKey(normalizedFile, line, fn.name, functionNames);
-      const coverage = coverageFromStatements(fn.loc, statementMap, statementHits, fnHits[fnID]);
+      const nestedRanges = Object.entries(fnMap)
+        .filter(([candidateID, candidate]) => candidateID !== fnID && rangeStrictlyContains(fn.loc, candidate.loc))
+        .map(([, candidate]) => candidate.loc);
+      const coverage = coverageFromStatements(fn.loc, nestedRanges, statementMap, statementHits, fnHits[fnID]);
       coverageMap.set(key, clampCoverage(coverage));
     }
   }
@@ -71,6 +75,7 @@ function readCoverageFinalJSON(
 
 function coverageFromStatements(
   fnRange: SourceRange,
+  nestedRanges: SourceRange[],
   statementMap: Record<string, SourceRange>,
   statementHits: Record<string, number>,
   fnHitCount: number | undefined,
@@ -84,7 +89,8 @@ function coverageFromStatements(
   const inRangeStatementIDs: string[] = [];
   for (const [statementID, statementRange] of Object.entries(statementMap)) {
     const statementLine = statementRange.start?.line ?? 0;
-    if (statementLine >= startLine && statementLine <= endLine) {
+    const belongsToNestedFunction = nestedRanges.some((nestedRange) => rangeContainsPosition(nestedRange, statementRange.start));
+    if (statementLine >= startLine && statementLine <= endLine && !belongsToNestedFunction) {
       inRangeStatementIDs.push(statementID);
     }
   }
@@ -100,6 +106,25 @@ function coverageFromStatements(
     }
   }
   return covered / inRangeStatementIDs.length;
+}
+
+function rangeStrictlyContains(outer: SourceRange, inner: SourceRange): boolean {
+  return (
+    comparePositions(outer.start, inner.start) <= 0 &&
+    comparePositions(outer.end, inner.end) >= 0 &&
+    (comparePositions(outer.start, inner.start) < 0 || comparePositions(outer.end, inner.end) > 0)
+  );
+}
+
+function rangeContainsPosition(range: SourceRange, position: Position): boolean {
+  return comparePositions(range.start, position) <= 0 && comparePositions(range.end, position) >= 0;
+}
+
+function comparePositions(left: Position, right: Position): number {
+  if (left.line !== right.line) {
+    return left.line - right.line;
+  }
+  return (left.column ?? 0) - (right.column ?? 0);
 }
 
 function readLcov(
