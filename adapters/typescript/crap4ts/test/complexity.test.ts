@@ -67,3 +67,10 @@ export function decisions(items: number[]): number {
     complexity: 9,
   });
 });
+
+test("invalid TypeScript fails the complexity scan", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crap4ts-invalid-"));
+  fs.writeFileSync(path.join(dir, "invalid.ts"), "export function broken( {", "utf8");
+
+  assert.throws(() => scanComplexity(dir), /invalid\.ts:1:/);
+});
