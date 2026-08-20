@@ -164,7 +164,7 @@ fn print_text(stdout: &mut dyn Write, report: &Report) {
             function.line,
             function.func_name,
             function.complexity,
-            function.coverage * 100.0,
+            function.coverage,
             function.crap,
             status,
             note
@@ -295,7 +295,16 @@ mod tests {
 
         let report: Value = serde_json::from_slice(stdout.get_ref()).expect("valid json");
         assert!(report.get("ceiling").is_some());
-        assert!(report.get("functions").and_then(Value::as_array).is_some());
+        let functions = report
+            .get("functions")
+            .and_then(Value::as_array)
+            .expect("functions array");
+        assert_eq!(functions.len(), 2);
+        let coverage = functions[0]
+            .get("coverage")
+            .and_then(Value::as_f64)
+            .expect("numeric coverage");
+        assert_eq!(coverage, 100.0);
         assert!(report.get("summary").is_some());
     }
 

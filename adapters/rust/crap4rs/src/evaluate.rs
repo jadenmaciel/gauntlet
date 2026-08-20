@@ -30,7 +30,7 @@ pub fn evaluate(
             line: function.line,
             func_name: function.func_name.clone(),
             complexity: function.complexity,
-            coverage: coverage / 100.0,
+            coverage,
             crap,
             pass,
             matched,
@@ -80,7 +80,7 @@ mod tests {
 
         let covered = &report.functions[0];
         assert!(covered.matched);
-        assert!((covered.coverage - 0.5).abs() < 1e-9);
+        assert!((covered.coverage - 50.0).abs() < 1e-9);
 
         let uncovered = &report.functions[1];
         assert!(!uncovered.matched);

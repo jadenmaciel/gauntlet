@@ -25,6 +25,9 @@ pub fn scan_dir(root: &Path) -> Result<Vec<FunctionComplexity>, String> {
         if !entry.file_type().is_file() {
             continue;
         }
+        if entry.file_name() == "build.rs" {
+            continue;
+        }
         if entry.path().extension().and_then(|ext| ext.to_str()) != Some("rs") {
             continue;
         }
@@ -44,7 +47,11 @@ pub fn scan_dir(root: &Path) -> Result<Vec<FunctionComplexity>, String> {
 
 fn skip_entry(entry: &DirEntry) -> bool {
     let name = entry.file_name().to_string_lossy();
-    entry.file_type().is_dir() && matches!(name.as_ref(), ".git" | "target")
+    entry.file_type().is_dir()
+        && matches!(
+            name.as_ref(),
+            ".git" | "target" | "tests" | "benches" | "examples"
+        )
 }
 
 fn normalize_relative(path: &Path, root: &Path) -> String {
@@ -86,6 +93,28 @@ fn collect_items(items: &[Item], relative_path: &str, output: &mut Vec<FunctionC
                             complexity: block_complexity(&method.block),
                         });
                     }
+                }
+            }
+            Item::Trait(trait_item) => {
+                if should_skip_attrs(&trait_item.attrs) {
+                    continue;
+                }
+                for item in &trait_item.items {
+                    let syn::TraitItem::Fn(method) = item else {
+                        continue;
+                    };
+                    if should_skip_attrs(&method.attrs) {
+                        continue;
+                    }
+                    let Some(block) = &method.default else {
+                        continue;
+                    };
+                    output.push(FunctionComplexity {
+                        file: relative_path.to_string(),
+                        line: method.sig.fn_token.span().start().line,
+                        func_name: method.sig.ident.to_string(),
+                        complexity: block_complexity(block),
+                    });
                 }
             }
             Item::Mod(module) => {
@@ -205,6 +234,35 @@ mod tests {
         assert_eq!(functions[0].complexity, 2);
         assert_eq!(functions[1].func_name, "beta");
         assert_eq!(functions[1].complexity, 2);
+    }
+
+    #[test]
+    fn includes_default_trait_methods_and_skips_non_product_targets() {
+        let dir = new_temp_dir("targets");
+        let src_dir = dir.join("src");
+        fs::create_dir_all(&src_dir).expect("create src dir");
+        fs::create_dir_all(dir.join("tests")).expect("create tests dir");
+        fs::create_dir_all(dir.join("examples")).expect("create examples dir");
+
+        fs::write(
+            src_dir.join("lib.rs"),
+            "pub trait Demo {\n    fn choose(&self, flag: bool) -> i32 {\n        if flag { 1 } else { 0 }\n    }\n}\n",
+        )
+        .expect("write source");
+        fs::write(
+            dir.join("tests/integration.rs"),
+            "fn helper() -> bool { true }\n",
+        )
+        .expect("write integration test");
+        fs::write(dir.join("examples/demo.rs"), "fn main() { if true {} }\n")
+            .expect("write example");
+        fs::write(dir.join("build.rs"), "fn main() { if true {} }\n").expect("write build script");
+
+        let functions = scan_dir(&dir).expect("scan dir");
+
+        assert_eq!(functions.len(), 1);
+        assert_eq!(functions[0].func_name, "choose");
+        assert_eq!(functions[0].complexity, 2);
     }
 
     fn new_temp_dir(prefix: &str) -> PathBuf {
