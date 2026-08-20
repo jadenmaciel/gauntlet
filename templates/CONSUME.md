@@ -1,6 +1,6 @@
 # Add CRAP to a repo
 
-How to install the gauntlet CRAP gate in a new repo. Go works today, and Python, Rust, TypeScript, and PHP now have adapter recipes. The score they compute is the same formula in [docs/CRAP.md](../docs/CRAP.md).
+How to install the gauntlet CRAP gate in a new repo. Go is wired end-to-end today. Python, Rust, TypeScript, and PHP have scorer recipes in section 6 once their adapters merge. Every scorer uses the same formula in [docs/CRAP.md](../docs/CRAP.md).
 
 ## 1. Install the tools
 
@@ -75,7 +75,7 @@ Cloud is done when those three match CI, including a failing function failing th
 
 ## 6. Non-Go adapter recipes
 
-Keep the same CRAP contract from [docs/CRAP.md](../docs/CRAP.md). Use each language fragment for repo wiring, then run the scorer command for that adapter.
+Only Go has a composite GitHub Action today. Each language below ships a Makefile fragment and scorer CLI in its adapter PR. Copy the fragment for repo wiring, generate real test coverage, then run the scorer. Policy E from section 2 applies: measure `summary.max_crap` on real coverage before the ceiling is a gate. Policy H in [docs/uncle-bob-negative-test-experiment.md](../docs/uncle-bob-negative-test-experiment.md) is linked documentation, not a product gate.
 
 ### Python (`crap4py`)
 
@@ -87,9 +87,11 @@ Install runtime tooling:
 python3 -m pip install coverage
 ```
 
-Score a repo (coverage XML already generated):
+Generate coverage and score your repo (after vendoring `adapters/python/crap4py.py`):
 
 ```bash
+python3 -m coverage run -m pytest
+python3 -m coverage xml -o coverage.xml
 python3 adapters/python/crap4py.py --dir . --coverage coverage.xml --thresholds .gauntlet/thresholds.yml --format json
 ```
 
@@ -97,46 +99,39 @@ python3 adapters/python/crap4py.py --dir . --coverage coverage.xml --thresholds 
 
 Use [templates/rust/Makefile.fragment](rust/Makefile.fragment).
 
-Install coverage tooling:
+Install coverage tooling, then build `bin/crap4rs` with the fragment `crap4rs-tools` target (pins gauntlet at `v0.1.0`):
 
 ```bash
+rustup component add llvm-tools-preview
 cargo install cargo-llvm-cov --version 0.6.21 --locked
 ```
 
-Score a repo from adapter CLI:
+Generate coverage and score your repo root:
 
 ```bash
-CARGO_TARGET_DIR=/tmp/crap4rs-target cargo run --manifest-path adapters/rust/crap4rs/Cargo.toml -- --dir adapters/rust/crap4rs/testdata/demo_hot_function --coverage-json /tmp/crap4rs-coverage-high.json --format json
+cargo llvm-cov --json --output-path target/llvm-cov.json
+bin/crap4rs --dir . --coverage-json target/llvm-cov.json --ceiling-file .gauntlet/thresholds.yml --format json
 ```
 
 ### TypeScript (`crap4ts`)
 
 Use [templates/typescript/Makefile.fragment](typescript/Makefile.fragment).
 
-Install adapter dependencies:
+Build the adapter with the fragment `gauntlet-ts-tools` target, generate real coverage, then score from your repo root:
 
 ```bash
-cd adapters/typescript/crap4ts && npm ci
-```
-
-Score from built CLI:
-
-```bash
-cd adapters/typescript/crap4ts && node dist/cli.js --dir demo/project --coverage demo/coverage-low.json --thresholds demo/project/.gauntlet/thresholds.yml --format json
+npm run test:coverage
+node .tools/gauntlet/adapters/typescript/crap4ts/dist/cli.js --dir . --coverage coverage/coverage-final.json --thresholds .gauntlet/thresholds.yml --format json
 ```
 
 ### PHP (`crap4php`)
 
 Use [templates/php/Makefile.fragment](php/Makefile.fragment).
 
-Install adapter dependencies:
+The fragment assumes you vendored the adapter under `tools/crap4php`. Install it, generate PHPUnit clover coverage, then score:
 
 ```bash
-cd adapters/php/crap4php && composer install
-```
-
-Score from adapter CLI:
-
-```bash
-cd adapters/php/crap4php && php bin/crap4php --dir tests/fixtures --coverage tests/fixtures/clover-high.xml --ceiling 30 --format json
+composer install --working-dir tools/crap4php --no-interaction --prefer-dist
+vendor/bin/phpunit --coverage-clover build/coverage/clover.xml
+php tools/crap4php/bin/crap4php --dir . --coverage build/coverage/clover.xml --thresholds .gauntlet/thresholds.yml --format json
 ```
