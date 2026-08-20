@@ -329,6 +329,47 @@ mod tests {
         assert_eq!(code, 1, "stderr={}", bytes_to_string(stderr.get_ref()));
     }
 
+    #[test]
+    fn ignores_vendored_gauntlet_checkout_in_consumer_repo() {
+        let fixture = write_fixture_project();
+        let vendored_src = fixture.join(".gauntlet-tools/gauntlet/adapters/rust/crap4rs/src");
+        fs::create_dir_all(&vendored_src).expect("create vendored gauntlet source directory");
+        fs::write(
+            vendored_src.join("lib.rs"),
+            "pub fn vendored_failure(v: i32) -> i32 {\n    if v > 0 { 1 } else if v < 0 { -1 } else { 0 }\n}\n",
+        )
+        .expect("write vendored gauntlet source");
+
+        let mut stdout = Cursor::new(Vec::new());
+        let mut stderr = Cursor::new(Vec::new());
+        let args = vec![
+            "--dir".to_string(),
+            fixture.to_string_lossy().to_string(),
+            "--coverage-json".to_string(),
+            fixture
+                .join("coverage-none.json")
+                .to_string_lossy()
+                .to_string(),
+            "--ceiling".to_string(),
+            "2".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+
+        let code = run(&args, &mut stdout, &mut stderr);
+        assert_eq!(code, 1, "stderr={}", bytes_to_string(stderr.get_ref()));
+
+        let report: Value = serde_json::from_slice(stdout.get_ref()).expect("valid json");
+        let functions = report["functions"].as_array().expect("functions array");
+        assert_eq!(functions.len(), 2);
+        assert_eq!(functions[0]["file"], "src/lib.rs");
+        assert_eq!(functions[0]["func"], "hot");
+        assert_eq!(functions[0]["pass"], false);
+        assert_eq!(functions[1]["file"], "src/lib.rs");
+        assert_eq!(functions[1]["func"], "cold");
+        assert_eq!(functions[1]["pass"], true);
+    }
+
     fn write_fixture_project() -> PathBuf {
         let root = new_temp_dir("cli");
         let src_dir = root.join("src");

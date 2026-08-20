@@ -50,7 +50,7 @@ fn skip_entry(entry: &DirEntry) -> bool {
     entry.file_type().is_dir()
         && matches!(
             name.as_ref(),
-            ".git" | "target" | "tests" | "benches" | "examples"
+            ".git" | ".gauntlet-tools" | "target" | "tests" | "benches" | "examples"
         )
 }
 
