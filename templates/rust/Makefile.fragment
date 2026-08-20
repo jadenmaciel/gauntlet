@@ -20,7 +20,7 @@ crap4rs-tools:
 	test -d "$(GAUNTLET_CHECKOUT_DIR)" || git clone --depth 1 --branch $(GAUNTLET_VERSION) https://github.com/jadenmaciel/gauntlet "$(GAUNTLET_CHECKOUT_DIR)"
 	git -C "$(GAUNTLET_CHECKOUT_DIR)" fetch --tags --force
 	git -C "$(GAUNTLET_CHECKOUT_DIR)" checkout "$(GAUNTLET_VERSION)"
-	cargo install --path "$(GAUNTLET_CHECKOUT_DIR)/adapters/rust/crap4rs" --locked --root "$(abspath $(BIN_DIR))"
+	cargo install --path "$(GAUNTLET_CHECKOUT_DIR)/adapters/rust/crap4rs" --locked --root "$(abspath $(BIN_DIR)/..)"
 
 .PHONY: rust-coverage
 rust-coverage: crap4rs-tools
