@@ -72,7 +72,6 @@ PHP;
 <coverage>
   <project>
     <file name="Example.php">
-      <line num="3" type="method" name="outer" count="1"/>
       <line num="5" type="stmt" count="1"/>
       <line num="6" type="stmt" count="0"/>
     </file>
@@ -87,7 +86,7 @@ XML;
         $coverage = (new CloverCoverageParser($normalizer))->coverageForFunctions($cloverPath, $functions);
 
         $this->assertCount(1, $coverage);
-        $this->assertSame(100.0, array_values($coverage)[0]);
+        $this->assertSame(100.0, $coverage[JoinKey::fromFunction($functions[0])]);
     }
 
     public function testMethodFallbackUsesTheMethodNameWhenLinesAreShared(): void
