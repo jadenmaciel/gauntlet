@@ -1,6 +1,6 @@
 # Add CRAP to a repo
 
-How to install the gauntlet CRAP gate in a new repo. Go works today. Python, Rust, TypeScript, and PHP adapters land in later phases. The score they will compute is the same formula in [docs/CRAP.md](../docs/CRAP.md).
+How to install the gauntlet CRAP gate in a new repo. Go works today, and Python, Rust, TypeScript, and PHP now have adapter recipes. The score they compute is the same formula in [docs/CRAP.md](../docs/CRAP.md).
 
 ## 1. Install the tools
 
@@ -73,15 +73,70 @@ Leave `changed-ref` empty to score the whole tree.
 
 Cloud is done when those three match CI, including a failing function failing the job.
 
-## Later languages
+## 6. Non-Go adapter recipes
 
-Keep the published formula while you wait. Python, Rust, TypeScript, and PHP adapters land in later phases.
+Keep the same CRAP contract from [docs/CRAP.md](../docs/CRAP.md). Use each language fragment for repo wiring, then run the scorer command for that adapter.
 
-| Repo | Language | Until the adapter exists |
-|---|---|---|
-| `clark-agency` | Python | Keep coverage. Add `crap4py` in a later phase. |
-| `troute-comms` | Rust | Coverage exists. Adapter after Python. |
-| `purely-expo` | TypeScript | Real coverage first, then `crap4ts`. |
-| `troute-mcp` | PHP | Real coverage first, then `crap4php`. |
+### Python (`crap4py`)
 
-A future repo in another language follows this file once its adapter ships. Until then, install `gauntlet` for thresholds only.
+Use [templates/python/Makefile.fragment](python/Makefile.fragment).
+
+Install runtime tooling:
+
+```bash
+python3 -m pip install coverage
+```
+
+Score a repo (coverage XML already generated):
+
+```bash
+python3 adapters/python/crap4py.py --dir . --coverage coverage.xml --thresholds .gauntlet/thresholds.yml --format json
+```
+
+### Rust (`crap4rs`)
+
+Use [templates/rust/Makefile.fragment](rust/Makefile.fragment).
+
+Install coverage tooling:
+
+```bash
+cargo install cargo-llvm-cov --version 0.6.21 --locked
+```
+
+Score a repo from adapter CLI:
+
+```bash
+CARGO_TARGET_DIR=/tmp/crap4rs-target cargo run --manifest-path adapters/rust/crap4rs/Cargo.toml -- --dir adapters/rust/crap4rs/testdata/demo_hot_function --coverage-json /tmp/crap4rs-coverage-high.json --format json
+```
+
+### TypeScript (`crap4ts`)
+
+Use [templates/typescript/Makefile.fragment](typescript/Makefile.fragment).
+
+Install adapter dependencies:
+
+```bash
+cd adapters/typescript/crap4ts && npm ci
+```
+
+Score from built CLI:
+
+```bash
+cd adapters/typescript/crap4ts && node dist/cli.js --dir demo/project --coverage demo/coverage-low.json --thresholds demo/project/.gauntlet/thresholds.yml --format json
+```
+
+### PHP (`crap4php`)
+
+Use [templates/php/Makefile.fragment](php/Makefile.fragment).
+
+Install adapter dependencies:
+
+```bash
+cd adapters/php/crap4php && composer install
+```
+
+Score from adapter CLI:
+
+```bash
+cd adapters/php/crap4php && php bin/crap4php --dir tests/fixtures --coverage tests/fixtures/clover-high.xml --ceiling 30 --format json
+```
