@@ -88,9 +88,8 @@ function coverageFromStatements(
 
   const inRangeStatementIDs: string[] = [];
   for (const [statementID, statementRange] of Object.entries(statementMap)) {
-    const statementLine = statementRange.start?.line ?? 0;
     const belongsToNestedFunction = nestedRanges.some((nestedRange) => rangeContainsPosition(nestedRange, statementRange.start));
-    if (statementLine >= startLine && statementLine <= endLine && !belongsToNestedFunction) {
+    if (rangeContainsPosition(fnRange, statementRange.start) && !belongsToNestedFunction) {
       inRangeStatementIDs.push(statementID);
     }
   }
