@@ -1,0 +1,27 @@
+# Makefile fragment: crap4php + gauntlet thresholds
+#
+# Copy these targets into your repo's Makefile and adjust variables.
+# This fragment assumes you vendored adapters/php/crap4php into tools/crap4php.
+
+PHP ?= php
+COMPOSER ?= composer
+CRAP4PHP_DIR ?= tools/crap4php
+CLOVER_FILE ?= build/coverage/clover.xml
+CRAP4PHP_SOURCE_DIR ?= src
+
+.PHONY: gauntlet-tools-php
+gauntlet-tools-php:
+	$(COMPOSER) install --working-dir $(CRAP4PHP_DIR) --no-interaction --prefer-dist
+
+.PHONY: cover-php
+cover-php:
+	vendor/bin/phpunit --coverage-clover $(CLOVER_FILE)
+
+.PHONY: crap-php
+crap-php: cover-php gauntlet-tools-php
+	$(PHP) $(CRAP4PHP_DIR)/bin/crap4php --dir $(CRAP4PHP_SOURCE_DIR) --coverage $(CLOVER_FILE) --format json
+
+# Add `crap-php` to your existing check target, for example:
+#
+# .PHONY: check
+# check: lint test crap-php

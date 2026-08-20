@@ -16,6 +16,23 @@ jobs:
       - name: Test
         run: go test ./...
 
+  php-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: adapters/php/crap4php
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer:v2
+          coverage: none
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+      - name: Test
+        run: composer test
+
   rust-test:
     runs-on: ubuntu-latest
     steps:
