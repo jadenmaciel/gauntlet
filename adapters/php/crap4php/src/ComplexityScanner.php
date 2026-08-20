@@ -8,8 +8,8 @@ use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\FunctionLike;
 use PhpParser\Node\Stmt;
-use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitor;
 use PhpParser\NodeVisitorAbstract;
 use PhpParser\Parser;
 use PhpParser\ParserFactory;
@@ -149,6 +149,9 @@ final class FunctionCollector extends NodeVisitorAbstract
         }
 
         if ($node instanceof Stmt\ClassMethod) {
+            if ($node->stmts === null) {
+                return null;
+            }
             $this->functions[] = $this->toFunctionComplexity(
                 line: $node->getStartLine(),
                 endLine: $node->getEndLine(),
@@ -225,14 +228,34 @@ final class FunctionCollector extends NodeVisitorAbstract
 
     private function complexityFor(FunctionLike $functionLike): int
     {
-        $complexity = 1;
-        $finder = new NodeFinder();
-        $nodes = $finder->find($functionLike->getStmts() ?? [], static fn (Node $node): bool => self::isDecisionNode($node));
-        foreach ($nodes as $node) {
-            $complexity += self::decisionWeight($node);
+        $traverser = new NodeTraverser();
+        $counter = new DecisionCounter();
+        $traverser->addVisitor($counter);
+        $traverser->traverse($functionLike->getStmts() ?? []);
+
+        return $counter->complexity();
+    }
+}
+
+final class DecisionCounter extends NodeVisitorAbstract
+{
+    private int $complexity = 1;
+
+    public function enterNode(Node $node): ?int
+    {
+        if ($node instanceof FunctionLike) {
+            return NodeVisitor::DONT_TRAVERSE_CHILDREN;
+        }
+        if (self::isDecisionNode($node)) {
+            $this->complexity += self::decisionWeight($node);
         }
 
-        return $complexity;
+        return null;
+    }
+
+    public function complexity(): int
+    {
+        return $this->complexity;
     }
 
     private static function isDecisionNode(Node $node): bool
