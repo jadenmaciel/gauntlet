@@ -23,6 +23,7 @@ final class ApplicationTest extends TestCase
         $json = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(['ceiling', 'functions', 'summary'], array_keys($json));
         $this->assertSame(['file', 'line', 'func', 'complexity', 'coverage', 'crap', 'pass'], array_keys($json['functions'][0]));
+        $this->assertSame(100.0, $json['functions'][0]['coverage']);
         $this->assertSame(['total', 'failing', 'max_crap'], array_keys($json['summary']));
     }
 
