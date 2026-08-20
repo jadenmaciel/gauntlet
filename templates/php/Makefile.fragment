@@ -7,6 +7,7 @@ PHP ?= php
 COMPOSER ?= composer
 CRAP4PHP_DIR ?= tools/crap4php
 CLOVER_FILE ?= build/coverage/clover.xml
+CRAP4PHP_SOURCE_DIR ?= src
 
 .PHONY: gauntlet-tools-php
 gauntlet-tools-php:
@@ -18,7 +19,7 @@ cover-php:
 
 .PHONY: crap-php
 crap-php: cover-php gauntlet-tools-php
-	$(PHP) $(CRAP4PHP_DIR)/bin/crap4php --dir . --coverage $(CLOVER_FILE) --format json
+	$(PHP) $(CRAP4PHP_DIR)/bin/crap4php --dir $(CRAP4PHP_SOURCE_DIR) --coverage $(CLOVER_FILE) --format json
 
 # Add `crap-php` to your existing check target, for example:
 #

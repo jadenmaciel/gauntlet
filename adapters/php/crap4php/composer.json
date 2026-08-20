@@ -2,7 +2,12 @@
   "name": "jadenmaciel/crap4php",
   "description": "CRAP scorer for PHP using cyclomatic complexity and clover coverage",
   "type": "project",
+  "bin": [
+    "bin/crap4php"
+  ],
   "require": {
+    "php": ">=8.2",
+    "ext-simplexml": "*",
     "nikic/php-parser": "^5.0",
     "symfony/yaml": "^7.0"
   },
