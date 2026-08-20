@@ -99,18 +99,18 @@ python3 adapters/python/crap4py.py --dir . --coverage coverage.xml --thresholds 
 
 Use [templates/rust/Makefile.fragment](rust/Makefile.fragment).
 
-Install coverage tooling, then build `bin/crap4rs` with the fragment `crap4rs-tools` target (pins gauntlet at `v0.1.0`):
+Set `GAUNTLET_VERSION` to a release that contains `crap4rs`, then run the fragment `crap4rs-tools` target. `cargo install --root` uses the repo root so the binary lands at `bin/crap4rs`:
 
 ```bash
-rustup component add llvm-tools-preview
-cargo install cargo-llvm-cov --version 0.6.21 --locked
+export GAUNTLET_VERSION=<release-containing-crap4rs>
+make crap4rs-tools
 ```
 
-Generate coverage and score your repo root:
+Generate coverage and score your repo root (same flags as fragment `crap-rust`, with `--format json` to read `summary.max_crap`):
 
 ```bash
 cargo llvm-cov --json --output-path target/llvm-cov.json
-bin/crap4rs --dir . --coverage-json target/llvm-cov.json --ceiling-file .gauntlet/thresholds.yml --format json
+bin/crap4rs --dir . --coverage-json target/llvm-cov.json --ceiling "$(awk '/^  crap_ceiling:/{found=1; next} found && /^    value:/{print $2; exit}' .gauntlet/thresholds.yml)" --format json
 ```
 
 ### TypeScript (`crap4ts`)
