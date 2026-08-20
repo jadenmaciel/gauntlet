@@ -64,7 +64,7 @@ final class ReportPrinter
                     $function->line,
                     $function->func,
                     $function->complexity,
-                    $function->coverage * 100.0,
+                    $function->coverage,
                     $function->crap,
                     $status,
                     $note,

@@ -21,7 +21,6 @@ final class Evaluator
             $matched = array_key_exists($key, $coverageByKey);
             $coveragePercent = $matched ? $coverageByKey[$key] : 0.0;
             $crap = CrapCalculator::compute($function->complexity, $coveragePercent);
-            $coverageFraction = $coveragePercent / 100.0;
             $pass = $crap <= $ceiling;
 
             if (!$pass) {
@@ -36,7 +35,7 @@ final class Evaluator
                 line: $function->line,
                 func: $function->func,
                 complexity: $function->complexity,
-                coverage: $coverageFraction,
+                coverage: $coveragePercent,
                 crap: $crap,
                 pass: $pass,
                 matched: $matched,
