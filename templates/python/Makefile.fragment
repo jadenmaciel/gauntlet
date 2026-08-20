@@ -1,0 +1,17 @@
+# Makefile fragment: coverage.py + crap4py
+#
+# Copy the pieces you need into your repo's real Makefile. Keep your existing
+# test command if it is not pytest.
+
+PYTHON ?= python3
+THRESHOLDS_FILE ?= .gauntlet/thresholds.yml
+COVERAGE_XML ?= coverage.xml
+
+.PHONY: coverage-xml
+coverage-xml:
+	$(PYTHON) -m coverage run -m pytest
+	$(PYTHON) -m coverage xml -o $(COVERAGE_XML)
+
+.PHONY: crap
+crap: coverage-xml
+	$(PYTHON) adapters/python/crap4py.py --dir . --coverage $(COVERAGE_XML) --thresholds $(THRESHOLDS_FILE)
