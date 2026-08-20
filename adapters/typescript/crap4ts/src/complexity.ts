@@ -67,7 +67,7 @@ function complexityFromFile(sourceFile: ts.SourceFile, relativeFile: string): Fu
 
   function visit(node: ts.Node): void {
     if (isFunctionLikeWithBody(node)) {
-      const line = lineOf(sourceFile, node);
+      const line = declarationLine(sourceFile, node);
       results.push({
         file: relativeFile,
         line,
@@ -161,6 +161,19 @@ function assignmentTargetName(node: ts.Expression): string | null {
 
 function lineOf(sourceFile: ts.SourceFile, node: ts.Node): number {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+}
+
+function declarationLine(sourceFile: ts.SourceFile, node: FunctionLikeWithBody): number {
+  if ("name" in node && node.name) {
+    return lineOf(sourceFile, node.name);
+  }
+  if (ts.isConstructorDeclaration(node)) {
+    const keyword = node.getChildren(sourceFile).find((child) => child.kind === ts.SyntaxKind.ConstructorKeyword);
+    if (keyword) {
+      return lineOf(sourceFile, keyword);
+    }
+  }
+  return lineOf(sourceFile, node);
 }
 
 function cyclomaticComplexity(node: FunctionLikeWithBody): number {

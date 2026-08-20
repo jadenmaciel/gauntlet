@@ -23,3 +23,22 @@ test("evaluate keeps functions missing coverage with coverage 0 and matched fals
   assert.equal(report.functions[0].matched, false);
   assert.equal(report.functions[0].pass, false);
 });
+
+test("evaluate reports matched coverage as a percentage", () => {
+  const report = evaluate(
+    [
+      {
+        file: "src/example.ts",
+        line: 12,
+        func: "hotPath",
+        complexity: 3,
+      },
+    ],
+    new Map([["src/example.ts:12:hotPath", 0.18]]),
+    8,
+  );
+
+  assert.equal(report.functions[0].coverage, 18);
+  assert.equal(report.functions[0].crap, 7.962312);
+  assert.equal(report.functions[0].matched, true);
+});

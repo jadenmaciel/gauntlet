@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { buildKey } from "./key.js";
+import type { FunctionComplexity } from "./types.js";
 
 interface Position {
   line: number;
@@ -19,18 +20,27 @@ interface IstanbulFileCoverage {
   s?: Record<string, number>;
 }
 
-export function readCoverage(coveragePath: string, rootDir: string): Map<string, number> {
+export function readCoverage(
+  coveragePath: string,
+  rootDir: string,
+  functions: FunctionComplexity[],
+): Map<string, number> {
+  const functionNames = indexFunctionNames(functions);
   const ext = path.extname(coveragePath).toLowerCase();
   if (ext === ".json") {
-    return readCoverageFinalJSON(coveragePath, rootDir);
+    return readCoverageFinalJSON(coveragePath, rootDir, functionNames);
   }
   if (ext === ".lcov" || ext === ".info") {
-    return readLcov(coveragePath, rootDir);
+    return readLcov(coveragePath, rootDir, functionNames);
   }
   throw new Error(`unsupported coverage format for ${coveragePath}; expected .json, .lcov, or .info`);
 }
 
-function readCoverageFinalJSON(coveragePath: string, rootDir: string): Map<string, number> {
+function readCoverageFinalJSON(
+  coveragePath: string,
+  rootDir: string,
+  functionNames: Map<string, string[]>,
+): Map<string, number> {
   const raw = fs.readFileSync(coveragePath, "utf8");
   const decoded: unknown = JSON.parse(raw);
   if (!decoded || typeof decoded !== "object") {
@@ -51,7 +61,7 @@ function readCoverageFinalJSON(coveragePath: string, rootDir: string): Map<strin
       if (!line || !Number.isFinite(line)) {
         continue;
       }
-      const key = buildKey(normalizedFile, line, fn.name);
+      const key = coverageKey(normalizedFile, line, fn.name, functionNames);
       const coverage = coverageFromStatements(fn.loc, statementMap, statementHits, fnHits[fnID]);
       coverageMap.set(key, clampCoverage(coverage));
     }
@@ -92,7 +102,11 @@ function coverageFromStatements(
   return covered / inRangeStatementIDs.length;
 }
 
-function readLcov(coveragePath: string, rootDir: string): Map<string, number> {
+function readLcov(
+  coveragePath: string,
+  rootDir: string,
+  functionNames: Map<string, string[]>,
+): Map<string, number> {
   const raw = fs.readFileSync(coveragePath, "utf8");
   const coverageMap = new Map<string, number>();
 
@@ -128,12 +142,40 @@ function readLcov(coveragePath: string, rootDir: string): Map<string, number> {
       if (!fnLine) {
         continue;
       }
-      const key = buildKey(currentFile, fnLine, fnName);
+      const key = coverageKey(currentFile, fnLine, fnName, functionNames);
       coverageMap.set(key, hits > 0 ? 1 : 0);
     }
   }
 
   return coverageMap;
+}
+
+function indexFunctionNames(functions: FunctionComplexity[]): Map<string, string[]> {
+  const names = new Map<string, string[]>();
+  for (const fn of functions) {
+    const key = locationKey(fn.file, fn.line);
+    const atLocation = names.get(key) ?? [];
+    atLocation.push(fn.func);
+    names.set(key, atLocation);
+  }
+  return names;
+}
+
+function coverageKey(
+  file: string,
+  line: number,
+  coverageName: string,
+  functionNames: Map<string, string[]>,
+): string {
+  const names = functionNames.get(locationKey(file, line)) ?? [];
+  if (names.includes(coverageName) || names.length !== 1) {
+    return buildKey(file, line, coverageName);
+  }
+  return buildKey(file, line, names[0]);
+}
+
+function locationKey(file: string, line: number): string {
+  return `${file}\0${line}`;
 }
 
 function normalizeFile(filePath: string, rootDir: string): string {

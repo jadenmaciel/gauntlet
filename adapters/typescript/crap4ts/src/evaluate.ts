@@ -21,7 +21,8 @@ export function evaluate(
     const key = buildKey(fn.file, fn.line, fn.func);
     const matched = coverage.has(key);
     const coverageFraction = matched ? clampCoverage(coverage.get(key) ?? 0) : 0;
-    const score = computeCRAP(fn.complexity, coverageFraction * 100);
+    const coveragePercent = coverageFraction * 100;
+    const score = computeCRAP(fn.complexity, coveragePercent);
     const pass = score <= ceiling;
 
     if (!pass) {
@@ -36,7 +37,7 @@ export function evaluate(
       line: fn.line,
       func: fn.func,
       complexity: fn.complexity,
-      coverage: coverageFraction,
+      coverage: coveragePercent,
       crap: score,
       pass,
       matched,

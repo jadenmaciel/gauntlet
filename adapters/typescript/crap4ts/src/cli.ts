@@ -38,7 +38,7 @@ export async function run(args: string[], stdout: Writable, stderr: Writable): P
 
   try {
     const functions = scanComplexity(options.dir);
-    const coverage = readCoverage(options.coverage, options.dir);
+    const coverage = readCoverage(options.coverage, options.dir, functions);
     const ceiling = options.ceiling ?? readCeiling(options.thresholds);
     const report = evaluate(functions, coverage, ceiling);
 

@@ -22,7 +22,7 @@ export function formatText(report: Report): string {
     const status = fn.pass ? "PASS" : "FAIL";
     const note = fn.matched ? "" : " (no coverage data)";
     lines.push(
-      `${fn.file}:${fn.line}:${fn.func}\tcomplexity=${fn.complexity}\tcoverage=${(fn.coverage * 100).toFixed(1)}%\tcrap=${fn.crap.toFixed(2)}\t${status}${note}`,
+      `${fn.file}:${fn.line}:${fn.func}\tcomplexity=${fn.complexity}\tcoverage=${fn.coverage.toFixed(1)}%\tcrap=${fn.crap.toFixed(2)}\t${status}${note}`,
     );
   }
   lines.push("");

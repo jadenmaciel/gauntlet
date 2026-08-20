@@ -62,7 +62,7 @@ test("cli prints required json report shape and exits 1 for failing functions", 
   assert.equal(decoded.functions.length, 1);
   assert.equal(decoded.functions[0].file, "src/hot.ts");
   assert.equal(decoded.functions[0].func, "hotPath");
-  assert.equal(decoded.functions[0].coverage, 0.1);
+  assert.equal(decoded.functions[0].coverage, 10);
 });
 
 test("cli exits 0 when coverage increase drops CRAP below ceiling", async () => {
@@ -87,8 +87,12 @@ test("cli exits 0 when coverage increase drops CRAP below ceiling", async () => 
 
   assert.equal(stderr.text(), "");
   assert.equal(code, 0);
-  const decoded = JSON.parse(stdout.text()) as { summary: { failing: number } };
+  const decoded = JSON.parse(stdout.text()) as {
+    functions: Array<{ coverage: number }>;
+    summary: { failing: number };
+  };
   assert.equal(decoded.summary.failing, 0);
+  assert.equal(decoded.functions[0].coverage, 100);
 });
 
 test("cli honors --ceiling override", async () => {
