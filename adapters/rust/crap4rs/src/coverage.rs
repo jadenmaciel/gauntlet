@@ -189,29 +189,43 @@ fn normalize_path(raw: &str, root: &Path) -> String {
 
 fn normalize_function_name(raw: &str) -> Option<String> {
     let demangled = demangle(raw).to_string();
-    let mut segments = demangled
-        .split("::")
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>();
-    if segments.is_empty() {
-        return None;
+    for segment in top_level_path_segments(&demangled).into_iter().rev() {
+        let segment = segment.trim();
+        if segment.is_empty() || is_hash_segment(segment) {
+            continue;
+        }
+        if segment.starts_with("{{closure") {
+            return None;
+        }
+        let bare = segment.split('<').next()?.trim();
+        if !bare.is_empty() {
+            return Some(bare.to_string());
+        }
     }
-    if segments
-        .last()
-        .is_some_and(|segment| is_hash_segment(segment))
-        && segments.len() > 1
-    {
-        segments.pop();
+    None
+}
+
+fn top_level_path_segments(value: &str) -> Vec<&str> {
+    let mut segments = Vec::new();
+    let mut depth = 0_u32;
+    let mut start = 0_usize;
+    let mut chars = value.char_indices().peekable();
+
+    while let Some((index, character)) = chars.next() {
+        match character {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            ':' if depth == 0 && chars.peek().is_some_and(|(_, next)| *next == ':') => {
+                chars.next();
+                segments.push(&value[start..index]);
+                start = index + 2;
+            }
+            _ => {}
+        }
     }
-    let last = segments.last()?.trim();
-    if last.starts_with("{{closure") {
-        return None;
-    }
-    let bare = last.split('<').next()?.trim();
-    if bare.is_empty() {
-        return None;
-    }
-    Some(bare.to_string())
+
+    segments.push(&value[start..]);
+    segments
 }
 
 fn is_hash_segment(segment: &str) -> bool {
@@ -227,7 +241,9 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    use super::{build_coverage_map, CoverageData, CoverageExport, CoverageFunction};
+    use super::{
+        build_coverage_map, normalize_function_name, CoverageData, CoverageExport, CoverageFunction,
+    };
     use crate::model::build_key;
 
     #[test]
@@ -261,6 +277,20 @@ mod tests {
                             0.into(),
                         ]],
                     },
+                    CoverageFunction {
+                        name: "_RINvCsjTYGxTB80pQ_17demo_hot_function16generic_hot_pathlEB2_"
+                            .to_string(),
+                        count: 1,
+                        filenames: vec!["src/lib.rs".to_string()],
+                        regions: vec![vec![
+                            19.into(),
+                            1.into(),
+                            35.into(),
+                            2.into(),
+                            1.into(),
+                            0.into(),
+                        ]],
+                    },
                 ],
             }],
         };
@@ -269,7 +299,26 @@ mod tests {
         let mut expected = HashMap::new();
         expected.insert(build_key("src/lib.rs", 3, "alpha"), 100.0);
         expected.insert(build_key("src/lib.rs", 10, "beta"), 0.0);
+        expected.insert(build_key("src/lib.rs", 19, "generic_hot_path"), 100.0);
 
         assert_eq!(coverage, expected);
+    }
+
+    #[test]
+    fn normalizes_generic_and_associated_function_names() {
+        assert_eq!(
+            normalize_function_name("crate[abc123]::generic_hot::<i32>"),
+            Some("generic_hot".to_string())
+        );
+        assert_eq!(
+            normalize_function_name(
+                "<crate::Thing<i32> as crate::Trait>::method::<crate::Value<u8>>"
+            ),
+            Some("method".to_string())
+        );
+        assert_eq!(
+            normalize_function_name("crate::generic_hot::<i32>::{{closure}}"),
+            None
+        );
     }
 }
