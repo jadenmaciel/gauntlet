@@ -1,6 +1,6 @@
 # Add CRAP to a repo
 
-How to install the gauntlet CRAP gate in a new repo. Go and Rust work today. Python, TypeScript, and PHP adapters land in later phases. Every adapter computes the formula in [docs/CRAP.md](../docs/CRAP.md).
+How to install the gauntlet CRAP gate in a new repo. Go is wired end-to-end today with a composite GitHub Action. Python, Rust, TypeScript, and PHP have scorer recipes in section 6. Every scorer uses the same formula in [docs/CRAP.md](../docs/CRAP.md).
 
 ## 1. Install the tools
 
@@ -81,14 +81,65 @@ Leave `changed-ref` empty to score the whole tree.
 
 Cloud is done when those three match CI, including a failing function failing the job.
 
-## Later languages
+## 6. Non-Go adapter recipes
 
-Keep the published formula while you wait. Python, TypeScript, and PHP adapters land in later phases.
+Only Go has a composite GitHub Action today. Each language below ships a Makefile fragment and scorer CLI in this repo. Copy the fragment for repo wiring, generate real test coverage, then run the scorer. Policy E from section 2 applies: measure `summary.max_crap` on real coverage before the ceiling is a gate. Policy H in [docs/uncle-bob-negative-test-experiment.md](../docs/uncle-bob-negative-test-experiment.md) is linked documentation, not a product gate.
 
-| Repo | Language | Until the adapter exists |
-|---|---|---|
-| `clark-agency` | Python | Keep coverage. Add `crap4py` in a later phase. |
-| `purely-expo` | TypeScript | Real coverage first, then `crap4ts`. |
-| `troute-mcp` | PHP | Real coverage first, then `crap4php`. |
+### Python (`crap4py`)
 
-A future repo in another language follows this file once its adapter ships. Until then, install `gauntlet` for thresholds only.
+Use [templates/python/Makefile.fragment](python/Makefile.fragment).
+
+Install runtime tooling:
+
+```bash
+python3 -m pip install coverage
+```
+
+Generate coverage and score your repo (after vendoring `adapters/python/crap4py.py`):
+
+```bash
+python3 -m coverage run -m pytest
+python3 -m coverage xml -o coverage.xml
+python3 adapters/python/crap4py.py --dir . --coverage coverage.xml --thresholds .gauntlet/thresholds.yml --format json
+```
+
+### Rust (`crap4rs`)
+
+Use [templates/rust/Makefile.fragment](rust/Makefile.fragment).
+
+Set `GAUNTLET_VERSION` to a release that contains `crap4rs`, then run the fragment `crap4rs-tools` target. `cargo install --root` uses the repo root so the binary lands at `bin/crap4rs`:
+
+```bash
+export GAUNTLET_VERSION=<release-containing-crap4rs>
+make crap4rs-tools
+```
+
+Generate coverage and score your repo root (same flags as fragment `crap-rust`, with `--format json` to read `summary.max_crap`):
+
+```bash
+cargo llvm-cov --json --output-path target/llvm-cov.json
+bin/crap4rs --dir . --coverage-json target/llvm-cov.json --ceiling "$(awk '/^  crap_ceiling:/{found=1; next} found && /^    value:/{print $2; exit}' .gauntlet/thresholds.yml)" --format json
+```
+
+### TypeScript (`crap4ts`)
+
+Use [templates/typescript/Makefile.fragment](typescript/Makefile.fragment).
+
+Build the adapter with the fragment `gauntlet-ts-tools` target, generate real coverage, then score from your repo root:
+
+```bash
+npm run test:coverage
+node .tools/gauntlet/adapters/typescript/crap4ts/dist/cli.js --dir . --coverage coverage/coverage-final.json --thresholds .gauntlet/thresholds.yml --format json
+```
+
+### PHP (`crap4php`)
+
+Use [templates/php/Makefile.fragment](php/Makefile.fragment).
+
+The fragment assumes you vendored the adapter under `tools/crap4php`. Install it, generate PHPUnit clover coverage, then score:
+
+```bash
+composer install --working-dir tools/crap4php --no-interaction --prefer-dist
+vendor/bin/phpunit --coverage-clover build/coverage/clover.xml
+php tools/crap4php/bin/crap4php --dir . --coverage build/coverage/clover.xml --thresholds .gauntlet/thresholds.yml --format json
+```
