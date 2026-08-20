@@ -13,10 +13,9 @@ COVER_PROFILE ?= coverage.out
 CRAP_CEILING := $(shell awk '/^  crap_ceiling:/{found=1; next} found && /^    value:/{print $$2; exit}' $(THRESHOLDS_FILE))
 MCOVER_FLOOR := $(shell awk '/^  mutation_mcover:/{found=1; next} found && /^    value:/{print $$2; exit}' $(THRESHOLDS_FILE))
 
-# Pin these to a tagged release once one exists; @latest is a placeholder,
-# not a recommendation to stay floating.
-CRAP4GO_VERSION ?= latest
-GAUNTLET_VERSION ?= latest
+# Pin crap4go and gauntlet to a release tag. Do not float on latest.
+CRAP4GO_VERSION ?= v0.1.0
+GAUNTLET_VERSION ?= v0.1.0
 GREMLINS_VERSION ?= latest
 
 .PHONY: gauntlet-tools
