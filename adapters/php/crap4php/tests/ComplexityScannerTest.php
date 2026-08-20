@@ -60,6 +60,50 @@ PHP);
         $this->assertSame('Concrete::work', $functions[0]->func);
     }
 
+    public function testMatchDefaultArmDoesNotCrashOrIncreaseComplexity(): void
+    {
+        $dir = $this->writeSource(<<<'PHP'
+<?php
+
+function classify(int $value): string
+{
+    return match ($value) {
+        1, 2 => 'small',
+        default => 'large',
+    };
+}
+PHP);
+
+        $functions = (new ComplexityScanner(new PathNormalizer($dir)))->scanDirectory($dir);
+
+        $this->assertCount(1, $functions);
+        $this->assertSame(3, $functions[0]->complexity);
+    }
+
+    public function testAnonymousClassMethodsAreNotAttributedToEnclosingClass(): void
+    {
+        $dir = $this->writeSource(<<<'PHP'
+<?php
+
+final class Factory
+{
+    public function make(): object
+    {
+        return new class {
+            public function run(): void
+            {
+            }
+        };
+    }
+}
+PHP);
+
+        $functions = (new ComplexityScanner(new PathNormalizer($dir)))->scanDirectory($dir);
+
+        $this->assertCount(1, $functions);
+        $this->assertSame('Factory::make', $functions[0]->func);
+    }
+
     private function writeSource(string $source): string
     {
         $dir = sys_get_temp_dir() . '/crap4php-scanner-' . bin2hex(random_bytes(8));

@@ -132,9 +132,11 @@ final class FunctionCollector extends NodeVisitorAbstract
             || $node instanceof Stmt\Enum_
         ) {
             $name = $node->name?->toString();
-            if ($name !== null) {
-                $this->typeStack[] = $name;
+            if ($name === null) {
+                return NodeVisitor::DONT_TRAVERSE_CHILDREN;
             }
+            $this->typeStack[] = $name;
+
             return null;
         }
 
@@ -144,6 +146,7 @@ final class FunctionCollector extends NodeVisitorAbstract
                 endLine: $node->getEndLine(),
                 functionName: $this->qualifiedFunctionName($node->name->toString()),
                 complexity: $this->complexityFor($node),
+                nestedFunctionRanges: $this->nestedFunctionRanges($node),
             );
             return null;
         }
@@ -157,6 +160,7 @@ final class FunctionCollector extends NodeVisitorAbstract
                 endLine: $node->getEndLine(),
                 functionName: $this->qualifiedMethodName($node->name->toString()),
                 complexity: $this->complexityFor($node),
+                nestedFunctionRanges: $this->nestedFunctionRanges($node),
             );
         }
 
@@ -188,7 +192,16 @@ final class FunctionCollector extends NodeVisitorAbstract
         return $this->functions;
     }
 
-    private function toFunctionComplexity(int $line, int $endLine, string $functionName, int $complexity): FunctionComplexity
+    /**
+     * @param list<array{int,int}> $nestedFunctionRanges
+     */
+    private function toFunctionComplexity(
+        int $line,
+        int $endLine,
+        string $functionName,
+        int $complexity,
+        array $nestedFunctionRanges,
+    ): FunctionComplexity
     {
         return new FunctionComplexity(
             file: $this->file,
@@ -196,7 +209,21 @@ final class FunctionCollector extends NodeVisitorAbstract
             endLine: $endLine,
             func: $functionName,
             complexity: $complexity,
+            nestedFunctionRanges: $nestedFunctionRanges,
         );
+    }
+
+    /**
+     * @return list<array{int,int}>
+     */
+    private function nestedFunctionRanges(FunctionLike $functionLike): array
+    {
+        $traverser = new NodeTraverser();
+        $collector = new NestedFunctionRangeCollector();
+        $traverser->addVisitor($collector);
+        $traverser->traverse($functionLike->getStmts() ?? []);
+
+        return $collector->ranges();
     }
 
     private function qualifiedFunctionName(string $functionName): string
@@ -234,6 +261,31 @@ final class FunctionCollector extends NodeVisitorAbstract
         $traverser->traverse($functionLike->getStmts() ?? []);
 
         return $counter->complexity();
+    }
+}
+
+final class NestedFunctionRangeCollector extends NodeVisitorAbstract
+{
+    /** @var list<array{int,int}> */
+    private array $ranges = [];
+
+    public function enterNode(Node $node): ?int
+    {
+        if (!$node instanceof FunctionLike) {
+            return null;
+        }
+
+        $this->ranges[] = [$node->getStartLine(), $node->getEndLine()];
+
+        return NodeVisitor::DONT_TRAVERSE_CHILDREN;
+    }
+
+    /**
+     * @return list<array{int,int}>
+     */
+    public function ranges(): array
+    {
+        return $this->ranges;
     }
 }
 
@@ -287,7 +339,7 @@ final class DecisionCounter extends NodeVisitorAbstract
         if ($node instanceof Expr\Match_) {
             $count = 0;
             foreach ($node->arms as $arm) {
-                if ($arm->conds === []) {
+                if ($arm->conds === null || $arm->conds === []) {
                     continue;
                 }
                 $count += count($arm->conds);

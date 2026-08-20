@@ -7,6 +7,7 @@ namespace Gauntlet\Crap4Php;
 final class PathNormalizer
 {
     private string $baseDir;
+    private string $invocationDir;
 
     public function __construct(string $baseDir)
     {
@@ -15,13 +16,19 @@ final class PathNormalizer
             throw new \RuntimeException(sprintf('scan directory %s does not exist', $baseDir));
         }
         $this->baseDir = self::normalizeSeparators($resolved);
+        $invocationDir = getcwd();
+        $this->invocationDir = self::normalizeSeparators($invocationDir === false ? $resolved : $invocationDir);
     }
 
     public function normalize(string $path): string
     {
         $candidate = self::normalizeSeparators($path);
         if (!self::isAbsolute($candidate)) {
-            $candidate = $this->baseDir . '/' . $candidate;
+            $scanRelative = $this->baseDir . '/' . $candidate;
+            $invocationRelative = $this->invocationDir . '/' . $candidate;
+            $candidate = !file_exists($scanRelative) && file_exists($invocationRelative)
+                ? $invocationRelative
+                : $scanRelative;
         }
 
         $resolved = realpath($candidate);

@@ -26,6 +26,7 @@ final class CloverCoverageParser
 
         $coverageByFile = $this->loadFileCoverage($xml);
         $coverageByKey = [];
+        $methodOffsets = [];
 
         foreach ($functions as $function) {
             $fileCoverage = $coverageByFile[$function->file] ?? null;
@@ -37,6 +38,7 @@ final class CloverCoverageParser
                 $fileCoverage['statements'],
                 $function->line,
                 $function->endLine,
+                $function->nestedFunctionRanges,
             );
 
             if ($totalStatements > 0) {
@@ -44,9 +46,14 @@ final class CloverCoverageParser
                 continue;
             }
 
-            $methodCount = $fileCoverage['methods'][$function->line] ?? null;
+            $methodName = self::shortFunctionName($function->func);
+            $methodCounts = $fileCoverage['methods'][$function->line][$methodName] ?? [];
+            $offsetKey = $function->file . ':' . $function->line . ':' . $methodName;
+            $offset = $methodOffsets[$offsetKey] ?? 0;
+            $methodCount = $methodCounts[$offset] ?? null;
             if ($methodCount !== null) {
                 $coverageByKey[JoinKey::fromFunction($function)] = $methodCount > 0 ? 100.0 : 0.0;
+                $methodOffsets[$offsetKey] = $offset + 1;
             }
         }
 
@@ -54,7 +61,7 @@ final class CloverCoverageParser
     }
 
     /**
-     * @return array<string,array{statements: array<int,int>, methods: array<int,int>}>
+     * @return array<string,array{statements: array<int,int>, methods: array<int,array<string,list<int>>>}>
      */
     private function loadFileCoverage(\SimpleXMLElement $xml): array
     {
@@ -83,7 +90,10 @@ final class CloverCoverageParser
                     $statementCounts[$line] = $count;
                 }
                 if ($type === 'method') {
-                    $methodCounts[$line] = $count;
+                    $name = (string) $lineNode['name'];
+                    if ($name !== '') {
+                        $methodCounts[$line][$name][] = $count;
+                    }
                 }
             }
 
@@ -98,14 +108,23 @@ final class CloverCoverageParser
 
     /**
      * @param array<int,int> $statementCounts
+     * @param list<array{int,int}> $excludedRanges
      * @return array{int,int}
      */
-    private function statementCoverage(array $statementCounts, int $startLine, int $endLine): array
-    {
+    private function statementCoverage(
+        array $statementCounts,
+        int $startLine,
+        int $endLine,
+        array $excludedRanges,
+    ): array {
         $total = 0;
         $covered = 0;
         foreach ($statementCounts as $line => $count) {
-            if ($line < $startLine || $line > $endLine) {
+            if (
+                $line < $startLine
+                || $line > $endLine
+                || self::lineInRanges($line, $excludedRanges)
+            ) {
                 continue;
             }
             $total++;
@@ -115,5 +134,34 @@ final class CloverCoverageParser
         }
 
         return [$total, $covered];
+    }
+
+    private static function shortFunctionName(string $function): string
+    {
+        $methodSeparator = strrpos($function, '::');
+        if ($methodSeparator !== false) {
+            return substr($function, $methodSeparator + 2);
+        }
+
+        $namespaceSeparator = strrpos($function, '\\');
+        if ($namespaceSeparator !== false) {
+            return substr($function, $namespaceSeparator + 1);
+        }
+
+        return $function;
+    }
+
+    /**
+     * @param list<array{int,int}> $ranges
+     */
+    private static function lineInRanges(int $line, array $ranges): bool
+    {
+        foreach ($ranges as [$startLine, $endLine]) {
+            if ($line >= $startLine && $line <= $endLine) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
