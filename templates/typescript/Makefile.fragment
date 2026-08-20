@@ -12,7 +12,7 @@ CRAP4TS_BIN := $(CRAP4TS_DIR)/dist/cli.js
 .PHONY: gauntlet-ts-tools
 gauntlet-ts-tools:
 	test -d $(CRAP4TS_ROOT)/.git || git clone --depth 1 --branch $(GAUNTLET_VERSION) $(GAUNTLET_REPO) $(CRAP4TS_ROOT)
-	cd $(CRAP4TS_ROOT) && git fetch --depth 1 origin $(GAUNTLET_VERSION) && git checkout $(GAUNTLET_VERSION)
+	cd $(CRAP4TS_ROOT) && git fetch --depth 1 origin $(GAUNTLET_VERSION) && git checkout --detach FETCH_HEAD
 	npm --prefix $(CRAP4TS_DIR) ci
 	npm --prefix $(CRAP4TS_DIR) run build
 
