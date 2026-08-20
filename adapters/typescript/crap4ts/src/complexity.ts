@@ -81,17 +81,17 @@ function listSourceFiles(dir: string): string[] {
 function complexityFromFile(sourceFile: ts.SourceFile, relativeFile: string): FunctionComplexity[] {
   const results: FunctionComplexity[] = [];
 
-  function visit(node: ts.Node): void {
+  function visit(node: ts.Node, parent?: ts.Node): void {
     if (isFunctionLikeWithBody(node)) {
       const line = declarationLine(sourceFile, node);
       results.push({
         file: relativeFile,
         line,
-        func: functionName(sourceFile, node),
+        func: functionName(sourceFile, node, parent),
         complexity: cyclomaticComplexity(node),
       });
     }
-    ts.forEachChild(node, visit);
+    ts.forEachChild(node, (child) => visit(child, node));
   }
 
   visit(sourceFile);
@@ -120,30 +120,30 @@ function isFunctionLikeWithBody(node: ts.Node): node is FunctionLikeWithBody {
   );
 }
 
-function functionName(sourceFile: ts.SourceFile, node: FunctionLikeWithBody): string {
+function functionName(sourceFile: ts.SourceFile, node: FunctionLikeWithBody, parent?: ts.Node): string {
   if (ts.isFunctionDeclaration(node) && node.name) {
     return node.name.text;
   }
   if ((ts.isMethodDeclaration(node) || ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node)) && node.name) {
     const methodName = propertyNameText(node.name);
-    const className = node.parent && ts.isClassLike(node.parent) && node.parent.name ? node.parent.name.text : "";
+    const className = parent && ts.isClassLike(parent) && parent.name ? parent.name.text : "";
     return className ? `${className}.${methodName}` : methodName;
   }
   if (ts.isConstructorDeclaration(node)) {
-    if (node.parent && ts.isClassLike(node.parent) && node.parent.name) {
-      return `${node.parent.name.text}.constructor`;
+    if (parent && ts.isClassLike(parent) && parent.name) {
+      return `${parent.name.text}.constructor`;
     }
     return "constructor";
   }
-  if ((ts.isFunctionExpression(node) || ts.isArrowFunction(node)) && node.parent) {
-    if (ts.isVariableDeclaration(node.parent) && ts.isIdentifier(node.parent.name)) {
-      return node.parent.name.text;
+  if ((ts.isFunctionExpression(node) || ts.isArrowFunction(node)) && parent) {
+    if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+      return parent.name.text;
     }
-    if (ts.isPropertyAssignment(node.parent)) {
-      return propertyNameText(node.parent.name);
+    if (ts.isPropertyAssignment(parent)) {
+      return propertyNameText(parent.name);
     }
-    if (ts.isBinaryExpression(node.parent) && node.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-      const name = assignmentTargetName(node.parent.left);
+    if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const name = assignmentTargetName(parent.left);
       if (name) {
         return name;
       }
