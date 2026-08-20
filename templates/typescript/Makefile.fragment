@@ -1,0 +1,31 @@
+BIN_DIR ?= bin
+BASE_BRANCH ?= main
+THRESHOLDS_FILE ?= .gauntlet/thresholds.yml
+COVERAGE_JSON ?= coverage/coverage-final.json
+
+GAUNTLET_REPO ?= https://github.com/jadenmaciel/gauntlet.git
+GAUNTLET_VERSION ?= v0.1.0
+CRAP4TS_ROOT ?= .tools/gauntlet
+CRAP4TS_DIR := $(CRAP4TS_ROOT)/adapters/typescript/crap4ts
+CRAP4TS_BIN := $(CRAP4TS_DIR)/dist/cli.js
+
+.PHONY: gauntlet-ts-tools
+gauntlet-ts-tools:
+	test -d $(CRAP4TS_ROOT)/.git || git clone --depth 1 --branch $(GAUNTLET_VERSION) $(GAUNTLET_REPO) $(CRAP4TS_ROOT)
+	cd $(CRAP4TS_ROOT) && git fetch --depth 1 origin $(GAUNTLET_VERSION) && git checkout $(GAUNTLET_VERSION)
+	npm --prefix $(CRAP4TS_DIR) ci
+	npm --prefix $(CRAP4TS_DIR) run build
+
+# Replace this with your repository's real test coverage command.
+.PHONY: cover-ts
+cover-ts:
+	npm run test:coverage
+
+.PHONY: crap
+crap: cover-ts gauntlet-ts-tools
+	node $(CRAP4TS_BIN) --dir . --coverage $(COVERAGE_JSON) --thresholds $(THRESHOLDS_FILE) --format text
+
+# Add `crap` as a prerequisite of your existing check target:
+#
+# .PHONY: check
+# check: lint test crap
