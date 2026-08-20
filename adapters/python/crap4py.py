@@ -17,6 +17,7 @@ class FunctionComplexity:
     line: int
     func: str
     complexity: int
+    coverage_lines: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -114,11 +115,15 @@ class _ComplexityCounter(ast.NodeVisitor):
         return
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
-        self.value += 1
+        return
 
 
 def _is_wildcard_match_case(case: ast.match_case) -> bool:
-    return isinstance(case.pattern, ast.MatchAs) and case.pattern.name is None
+    return (
+        isinstance(case.pattern, ast.MatchAs)
+        and case.pattern.name is None
+        and case.guard is None
+    )
 
 
 def function_complexity(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
@@ -126,6 +131,18 @@ def function_complexity(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
     for statement in node.body:
         counter.visit(statement)
     return counter.value
+
+
+def _coverage_lines(node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[int, ...]:
+    if not node.body or node.end_lineno is None:
+        return ()
+    lines = set(range(node.body[0].lineno, node.end_lineno + 1))
+    for child in ast.walk(node):
+        if child is node or not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        child_end = child.end_lineno or child.lineno
+        lines.difference_update(range(child.lineno, child_end + 1))
+    return tuple(sorted(lines))
 
 
 class _FunctionCollector(ast.NodeVisitor):
@@ -140,6 +157,7 @@ class _FunctionCollector(ast.NodeVisitor):
                 line=node.lineno,
                 func=node.name,
                 complexity=function_complexity(node),
+                coverage_lines=_coverage_lines(node),
             )
         )
         self.generic_visit(node)
@@ -151,6 +169,7 @@ class _FunctionCollector(ast.NodeVisitor):
                 line=node.lineno,
                 func=node.name,
                 complexity=function_complexity(node),
+                coverage_lines=_coverage_lines(node),
             )
         )
         self.generic_visit(node)
@@ -204,36 +223,59 @@ def scan_dir(scan_dir: str) -> list[FunctionComplexity]:
     return functions
 
 
-def load_coverage_xml(path: str, root_dir: str) -> dict[str, CoverageEntry]:
+def _coverage_file_path(
+    filename: str, root_dir: str, sources: Sequence[str]
+) -> str:
+    candidate = Path(filename)
+    if candidate.is_absolute():
+        return _normalize_file_path(filename, root_dir)
+
+    root = Path(root_dir).resolve()
+    for source in sources:
+        try:
+            return (Path(source).resolve() / candidate).relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return _normalize_file_path(filename, root_dir)
+
+
+def load_coverage_xml(
+    path: str, root_dir: str, functions: Iterable[FunctionComplexity]
+) -> dict[str, CoverageEntry]:
     tree = ET.parse(path)
     root = tree.getroot()
-    coverage: dict[str, CoverageEntry] = {}
+    sources = [
+        source.text.strip()
+        for source in root.findall("./sources/source")
+        if source.text and source.text.strip()
+    ]
+    line_hits_by_file: dict[str, dict[int, int]] = {}
 
     for class_node in root.findall(".//class"):
         filename = class_node.get("filename")
         if not filename:
             continue
-        normalized_file = _normalize_file_path(filename, root_dir)
-        for method_node in class_node.findall("./methods/method"):
-            function_name = method_node.get("name")
-            if not function_name:
+        normalized_file = _coverage_file_path(filename, root_dir, sources)
+        line_hits = line_hits_by_file.setdefault(normalized_file, {})
+        for line_node in class_node.findall("./lines/line"):
+            line_value = line_node.get("number")
+            if not line_value:
                 continue
-            line_numbers: list[int] = []
-            covered = 0
-            total = 0
-            for line_node in method_node.findall("./lines/line"):
-                line_value = line_node.get("number")
-                if not line_value:
-                    continue
-                line_numbers.append(int(line_value))
-                total += 1
-                if int(line_node.get("hits", "0")) > 0:
-                    covered += 1
-            if total == 0 or not line_numbers:
-                continue
-            fraction = covered / total
-            key = build_key(normalized_file, min(line_numbers), function_name)
-            coverage[key] = CoverageEntry(coverage=fraction)
+            line = int(line_value)
+            line_hits[line] = max(line_hits.get(line, 0), int(line_node.get("hits", "0")))
+
+    coverage: dict[str, CoverageEntry] = {}
+    for function in functions:
+        file_hits = line_hits_by_file.get(function.file)
+        if file_hits is None:
+            continue
+        hits = [file_hits[line] for line in function.coverage_lines if line in file_hits]
+        if not hits:
+            continue
+        coverage_percent = sum(hit > 0 for hit in hits) / len(hits) * 100.0
+        coverage[build_key(function.file, function.line, function.func)] = CoverageEntry(
+            coverage=coverage_percent
+        )
 
     return coverage
 
@@ -248,8 +290,8 @@ def evaluate(
     for fn in functions:
         entry = coverage.get(build_key(fn.file, fn.line, fn.func))
         matched = entry is not None
-        coverage_fraction = entry.coverage if entry else 0.0
-        score = compute_crap(fn.complexity, coverage_fraction * 100.0)
+        coverage_percent = entry.coverage if entry else 0.0
+        score = compute_crap(fn.complexity, coverage_percent)
         passed = score <= ceiling
         if not passed:
             failing += 1
@@ -260,7 +302,7 @@ def evaluate(
                 line=fn.line,
                 func=fn.func,
                 complexity=fn.complexity,
-                coverage=coverage_fraction,
+                coverage=coverage_percent,
                 crap=score,
                 pass_=passed,
                 matched=matched,
@@ -395,7 +437,7 @@ def print_text_report(report: Report, stdout: TextIO) -> None:
         note = "" if fn.matched else " (no coverage data)"
         stdout.write(
             f"{fn.file}:{fn.line}:{fn.func}\tcomplexity={fn.complexity}\t"
-            f"coverage={fn.coverage * 100:.1f}%\tcrap={fn.crap:.2f}\t{status}{note}\n"
+            f"coverage={fn.coverage:.1f}%\tcrap={fn.crap:.2f}\t{status}{note}\n"
         )
     stdout.write(
         f"\nceiling={report.ceiling:.2f} total={report.summary.total} "
@@ -411,7 +453,7 @@ def run(argv: Sequence[str], stdout: TextIO, stderr: TextIO) -> int:
             ceiling = read_ceiling_from_thresholds(options.thresholds)
 
         functions = scan_dir(options.dir)
-        coverage = load_coverage_xml(options.coverage, options.dir)
+        coverage = load_coverage_xml(options.coverage, options.dir, functions)
         report = evaluate(functions, coverage, ceiling)
 
         if options.format == "json":
