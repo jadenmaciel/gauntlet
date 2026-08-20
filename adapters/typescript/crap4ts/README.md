@@ -11,6 +11,8 @@
 - Primary: Istanbul `coverage-final.json` (function-level coverage from statement coverage inside function ranges).
 - Also accepted: lcov (`.lcov` / `.info`) using `FN`/`FNDA` rows (hit/miss-style function coverage).
 
+Text and JSON reports express coverage as a percentage from 0 to 100.
+
 ## Commands
 
 ```bash

@@ -4,7 +4,7 @@ THRESHOLDS_FILE ?= .gauntlet/thresholds.yml
 COVERAGE_JSON ?= coverage/coverage-final.json
 
 GAUNTLET_REPO ?= https://github.com/jadenmaciel/gauntlet.git
-GAUNTLET_VERSION ?= v0.1.0
+GAUNTLET_VERSION ?= main
 CRAP4TS_ROOT ?= .tools/gauntlet
 CRAP4TS_DIR := $(CRAP4TS_ROOT)/adapters/typescript/crap4ts
 CRAP4TS_BIN := $(CRAP4TS_DIR)/dist/cli.js
