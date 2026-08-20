@@ -53,6 +53,43 @@ XML;
         $this->assertSame(0.0, array_values($coverage)[0]);
     }
 
+    public function testNestedClosureDeclarationLineRemainsOuterCoverage(): void
+    {
+        $dir = $this->makeTempDirectory();
+        $source = <<<'PHP'
+<?php
+
+function outer(): callable
+{
+    return function (): int {
+        return 1;
+    };
+}
+PHP;
+        file_put_contents($dir . '/Example.php', $source);
+        $clover = <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<coverage>
+  <project>
+    <file name="Example.php">
+      <line num="3" type="method" name="outer" count="1"/>
+      <line num="5" type="stmt" count="1"/>
+      <line num="6" type="stmt" count="0"/>
+    </file>
+  </project>
+</coverage>
+XML;
+        $cloverPath = $dir . '/clover.xml';
+        file_put_contents($cloverPath, $clover);
+        $normalizer = new PathNormalizer($dir);
+        $functions = (new ComplexityScanner($normalizer))->scanDirectory($dir);
+
+        $coverage = (new CloverCoverageParser($normalizer))->coverageForFunctions($cloverPath, $functions);
+
+        $this->assertCount(1, $coverage);
+        $this->assertSame(100.0, array_values($coverage)[0]);
+    }
+
     public function testMethodFallbackUsesTheMethodNameWhenLinesAreShared(): void
     {
         $dir = $this->makeTempDirectory();

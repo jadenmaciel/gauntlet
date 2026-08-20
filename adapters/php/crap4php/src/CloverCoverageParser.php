@@ -157,7 +157,7 @@ final class CloverCoverageParser
     private static function lineInRanges(int $line, array $ranges): bool
     {
         foreach ($ranges as [$startLine, $endLine]) {
-            if ($line >= $startLine && $line <= $endLine) {
+            if ($line > $startLine && $line <= $endLine) {
                 return true;
             }
         }
