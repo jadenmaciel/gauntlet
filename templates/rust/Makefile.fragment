@@ -1,0 +1,30 @@
+# Makefile fragment: crap4rs + pinned gauntlet adapter checkout.
+#
+# Copy the pieces you need into your repo's real Makefile.
+
+BIN_DIR ?= bin
+THRESHOLDS_FILE ?= .gauntlet/thresholds.yml
+CRAP4RS_COVERAGE_JSON ?= target/llvm-cov.json
+
+CRAP4RS_CEILING := $(shell awk '/^  crap_ceiling:/{found=1; next} found && /^    value:/{print $$2; exit}' $(THRESHOLDS_FILE))
+
+GAUNTLET_VERSION ?= v0.1.0
+GAUNTLET_CHECKOUT_DIR ?= .gauntlet-tools/gauntlet
+CARGO_LLVM_COV_VERSION ?= 0.6.21
+
+.PHONY: crap4rs-tools
+crap4rs-tools:
+	rustup component add llvm-tools-preview
+	cargo install cargo-llvm-cov --version $(CARGO_LLVM_COV_VERSION) --locked
+	test -d "$(GAUNTLET_CHECKOUT_DIR)" || git clone --depth 1 --branch $(GAUNTLET_VERSION) https://github.com/jadenmaciel/gauntlet "$(GAUNTLET_CHECKOUT_DIR)"
+	git -C "$(GAUNTLET_CHECKOUT_DIR)" fetch --tags --force
+	git -C "$(GAUNTLET_CHECKOUT_DIR)" checkout "$(GAUNTLET_VERSION)"
+	cargo install --path "$(GAUNTLET_CHECKOUT_DIR)/adapters/rust/crap4rs" --locked --root "$(abspath $(BIN_DIR))"
+
+.PHONY: rust-coverage
+rust-coverage:
+	cargo llvm-cov --json --output-path "$(CRAP4RS_COVERAGE_JSON)"
+
+.PHONY: crap-rust
+crap-rust: rust-coverage crap4rs-tools
+	$(BIN_DIR)/crap4rs --dir . --coverage-json "$(CRAP4RS_COVERAGE_JSON)" --ceiling "$(CRAP4RS_CEILING)" --format text
