@@ -16,13 +16,25 @@ export function scanComplexity(dir: string): FunctionComplexity[] {
     const source = fs.readFileSync(filePath, "utf8");
     const scriptKind = filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
     const relativeFile = toPosix(path.relative(absDir, filePath));
-    const sourceFile = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, scriptKind);
-    const parseError = sourceFile.parseDiagnostics[0];
+    const diagnostics =
+      ts.transpileModule(source, {
+        fileName: filePath,
+        compilerOptions: {
+          jsx: ts.JsxEmit.Preserve,
+          target: ts.ScriptTarget.Latest,
+        },
+        reportDiagnostics: true,
+      }).diagnostics ?? [];
+    const parseError = diagnostics.find((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error);
     if (parseError) {
       const message = ts.flattenDiagnosticMessageText(parseError.messageText, "\n");
-      const line = parseError.start === undefined ? 1 : sourceFile.getLineAndCharacterOfPosition(parseError.start).line + 1;
+      const line =
+        parseError.file && parseError.start !== undefined
+          ? parseError.file.getLineAndCharacterOfPosition(parseError.start).line + 1
+          : 1;
       throw new Error(`${relativeFile}:${line}: ${message}`);
     }
+    const sourceFile = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, scriptKind);
     functions.push(...complexityFromFile(sourceFile, relativeFile));
   }
 
