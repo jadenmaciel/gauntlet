@@ -39,6 +39,6 @@ test("evaluate reports matched coverage as a percentage", () => {
   );
 
   assert.equal(report.functions[0].coverage, 18);
-  assert.equal(report.functions[0].crap, 7.962312);
+  assert.ok(Math.abs(report.functions[0].crap - 7.962312) < 1e-9);
   assert.equal(report.functions[0].matched, true);
 });
