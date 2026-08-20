@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  go-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,3 +32,11 @@ jobs:
         run: composer install --no-interaction --prefer-dist
       - name: Test
         run: composer test
+
+  rust-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test
+        run: cargo test --manifest-path adapters/rust/crap4rs/Cargo.toml

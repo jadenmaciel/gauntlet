@@ -1,0 +1,4 @@
+metrics:
+  crap_ceiling:
+    direction: max
+    value: 15
