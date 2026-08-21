@@ -1,17 +1,17 @@
 # gauntlet
 
-**Find the functions most likely to break, and stop new ones from being added.**
+Find the functions most likely to break, and stop new ones from being added.
 
-gauntlet scores every function in a repo with **CRAP** — Change Risk Anti-Pattern — which
-combines how branchy a function is with how well it is tested, then fails the build when any
-function is over a ceiling. The ceiling lives in a file that may only ever tighten, so quality
-ratchets in one direction.
+gauntlet scores every function with CRAP (Change Risk Anti-Pattern). That score
+combines how branchy a function is with how well it is tested. The build fails when
+any function is over a ceiling. The ceiling lives in a file and may only fall, so
+the bar never slips.
 
-One metric, five languages: **Go · Python · Rust · TypeScript · PHP**. Same flags, same JSON,
+One metric, five languages: Go, Python, Rust, TypeScript, PHP. Same flags, same JSON,
 same exit codes.
 
-> Pointing an AI agent at this repo? Send it to **[SKILL.md](SKILL.md)** and
-> **[adapters.yml](adapters.yml)**. See [For AI agents](#for-ai-agents).
+> Pointing an AI agent at this repo? Send it to [SKILL.md](SKILL.md) and
+> [adapters.yml](adapters.yml). See [For AI agents](#for-ai-agents).
 
 ## Quick start
 
@@ -32,8 +32,8 @@ gauntlet init --crap-ceiling 47
 crap4go --dir . --coverage coverage.out --thresholds .gauntlet/thresholds.yml
 ```
 
-Step 2 matters. A ceiling picked without measuring will either fail on day one against code
-nobody just wrote, or sit so high it gates nothing.
+Step 2 matters. A ceiling picked without measuring either fails on day one against
+code nobody just wrote, or sits so high it gates nothing.
 
 ## Languages
 
@@ -57,13 +57,15 @@ Every scorer takes the same flags:
 | `--dir` | root to scan for source files | `.` |
 | `--coverage` | coverage report to read | per language, see the table above |
 | `--thresholds` | YAML holding `metrics.crap_ceiling.value` | `.gauntlet/thresholds.yml` |
-| `--ceiling` | numeric override; **wins over `--thresholds`** | unset |
+| `--ceiling` | numeric override; wins over `--thresholds` | unset |
 | `--changed` | git ref; score only files changed since it | unset = whole tree |
 | `--format` | `text` or `json` | `text` |
 
-**Ceiling precedence:** `--ceiling` → `--thresholds` file → **exit 2**. No scorer invents one.
+Ceiling precedence is `--ceiling`, then the `--thresholds` file, then exit 2.
+No scorer invents a ceiling.
 
-**Exit codes:** `0` pass · `1` at least one function over the ceiling · `2` usage or I/O error.
+Exit codes are `0` pass, `1` at least one function over the ceiling, and `2` for a
+usage or I/O error.
 
 ## Per-language setup
 
@@ -98,7 +100,7 @@ cargo llvm-cov --json --output-path target/llvm-cov.json
 crap4rs --dir . --coverage target/llvm-cov.json --thresholds .gauntlet/thresholds.yml
 ```
 
-Install the coverage tool first: `rustup component add llvm-tools-preview` and
+Install the coverage tool first with `rustup component add llvm-tools-preview` and
 `cargo install cargo-llvm-cov --locked`. `--coverage-json` and `--ceiling-file` remain as
 aliases. See [adapters/rust/crap4rs/README.md](adapters/rust/crap4rs/README.md).
 
@@ -110,7 +112,7 @@ npx c8 --reporter=json npm test
 node .tools/gauntlet/adapters/typescript/crap4ts/dist/cli.js --dir . --coverage coverage/coverage-final.json --thresholds .gauntlet/thresholds.yml
 ```
 
-Any tool emitting istanbul `coverage-final.json` or `lcov.info` works — jest, vitest, nyc, c8.
+Any tool that emits istanbul `coverage-final.json` or `lcov.info` works (jest, vitest, nyc, c8).
 See [adapters/typescript/crap4ts/README.md](adapters/typescript/crap4ts/README.md).
 
 ### PHP
@@ -121,7 +123,7 @@ vendor/bin/phpunit --coverage-clover coverage.xml
 php tools/gauntlet/adapters/php/crap4php/bin/crap4php --dir src --coverage coverage.xml --thresholds .gauntlet/thresholds.yml
 ```
 
-Clover XML needs Xdebug or PCOV; without a driver PHPUnit writes an empty report and every
+Clover XML needs Xdebug or PCOV. Without a driver, PHPUnit writes an empty report and every
 function scores as untested. See [adapters/php/crap4php/README.md](adapters/php/crap4php/README.md).
 
 ## Output
@@ -150,7 +152,7 @@ ceiling=30.00 total=1 failing=1 max_crap=82.90
 The two numbers worth reading in a script are `summary.max_crap` and `summary.failing`.
 
 Numeric fields are JSON numbers, so a whole value may render as `30` or `30.0` depending on the
-scorer. Parse the JSON; do not diff the raw text.
+scorer. Parse the JSON. Do not diff the raw text.
 
 ## Thresholds and ratcheting
 
@@ -163,7 +165,7 @@ metrics:
     value: 30
 ```
 
-Create it from a **measured** baseline:
+Create it from a measured baseline:
 
 ```bash
 gauntlet init --crap-ceiling 47
@@ -176,21 +178,22 @@ gauntlet ratchet --metric crap_ceiling --value 42
 gauntlet verify  --metric crap_ceiling --value 42
 ```
 
-`gauntlet init` without `--crap-ceiling` writes `8` and marks it `PLACEHOLDER` in the file. That
-is a deliberate refusal to guess, not a recommendation — most existing codebases start well
-above 8, and gating there fails on day one.
+`gauntlet init` without `--crap-ceiling` writes `8` and marks it `PLACEHOLDER` in the file.
+That is not a recommended starting ceiling. Most existing codebases start well above 8, and
+gating there fails on day one. Measure first, then pass `--crap-ceiling`.
 
 ## CI
 
-Score only what the pull request touched, so the gate applies to new code without a
+Score only what the pull request touched so the gate applies to new code without a
 tree-wide cleanup first:
 
 ```bash
 crap4go --dir . --coverage coverage.out --thresholds .gauntlet/thresholds.yml --changed origin/main
 ```
 
-`--changed` resolves the merge base with the ref, adds untracked files, and — if the diff is
-empty — passes but warns on stderr, so a misconfigured base ref cannot silently disable the gate.
+`--changed` resolves the merge base with the ref and adds untracked files. If the diff is
+empty, the scorer passes but warns on stderr, so a misconfigured base ref cannot silently
+disable the gate.
 
 There is a composite action per language:
 
@@ -204,19 +207,20 @@ There is a composite action per language:
 
 Also `crap-python`, `crap-rust`, `crap-typescript`, `crap-php`. Each installs its scorer, fetches
 the base ref when the clone is shallow, and fails the job on exit 1. Copy-paste Makefile targets
-live in [templates/](templates/); full adoption steps are in
+live in [templates/](templates/). Full adoption steps are in
 [templates/CONSUME.md](templates/CONSUME.md).
 
 ## For AI agents
 
-- **[SKILL.md](SKILL.md)** — the decision procedure, in order, with troubleshooting. Start here.
-- **[adapters.yml](adapters.yml)** — machine-readable manifest: per-language detect globs,
-  install, coverage command, coverage format, and score command. Read this instead of parsing
-  prose; CI fails if the docs and the manifest disagree.
-- **[AGENTS.md](AGENTS.md)** — points at the above, plus the contracts to preserve when
-  changing this repo.
+[SKILL.md](SKILL.md) is the decision procedure, in order, with troubleshooting. Start there.
 
-Give an agent the repo URL and "add the CRAP gate to this project" and those files are enough.
+[adapters.yml](adapters.yml) is the machine-readable manifest. It has per-language detect globs,
+install, coverage command, coverage format, and score command. Read it instead of parsing
+prose. CI fails if the docs and the manifest disagree.
+
+[AGENTS.md](AGENTS.md) points at both, plus the contracts to preserve when changing this repo.
+
+Give an agent the repo URL and "add the CRAP gate to this project." Those three files are enough.
 
 ## The CRAP formula
 
@@ -224,9 +228,9 @@ Give an agent the repo URL and "add the CRAP gate to this project" and those fil
 CRAP = CC^2 * (1 - cov)^3 + CC
 ```
 
-`CC` is cyclomatic complexity; `cov` is that function's statement coverage from 0.0 to 1.0.
+`CC` is cyclomatic complexity. `cov` is that function's statement coverage from 0.0 to 1.0.
 
-Coverage is cubed, so **tests move the score much faster than refactoring does**:
+Coverage is cubed, so tests move the score much faster than refactoring does:
 
 | complexity | coverage | CRAP |
 |---|---|---|
@@ -237,18 +241,18 @@ Coverage is cubed, so **tests move the score much faster than refactoring does**
 
 | CRAP | Reading |
 |---|---|
-| 1–5 | clean |
-| 5–30 | moderate risk |
-| 30+ | crappy — refactor or test before extending it |
+| 1-5 | clean |
+| 5-30 | moderate risk |
+| 30+ | crappy. Refactor or test before extending it. |
 
 ## What counts as complexity
 
 Each function starts at 1, then adds one for every branch point. Nested functions are counted
 separately rather than folded into their parent. The list below is the union across the five
-languages; each scorer counts the constructs its language actually has.
+languages. Each scorer counts the constructs its language actually has.
 
 - `if` / `else if`, ternaries and conditional expressions
-- every loop (`for`, `while`, `foreach`, `range`, comprehensions — plus one per comprehension `if`)
+- every loop (`for`, `while`, `foreach`, `range`, comprehensions, plus one per comprehension `if`)
 - each non-default `case` / `match` arm, and each `select` communication clause
 - each `catch` / `except` handler
 - each `&&` / `||` / `and` / `or` operand past the first
@@ -261,24 +265,25 @@ whose own conclusion is worth quoting:
 
 > CRAP raises coverage and wrecks cleanliness; it does not improve design.
 
-Pushing a ceiling to 4 buys tests written to satisfy arithmetic. Treat CRAP as a **brake on new
-risk** — measure a baseline, ratchet deliberately, and leave design judgement to review. See
+Pushing a ceiling to 4 buys tests written to satisfy arithmetic. Use CRAP to stop new
+high-score functions from landing. Measure a baseline, tighten deliberately, and leave design
+judgement to review. See
 [docs/uncle-bob-negative-test-experiment.md](docs/uncle-bob-negative-test-experiment.md).
 
 ## Development
 
 ```bash
 go test ./...
-python3 -m unittest discover -s adapters/python/tests -t .
+python3 -m unittest adapters.python.tests.test_crap4py
 cargo test --manifest-path adapters/rust/crap4rs/Cargo.toml
 npm --prefix adapters/typescript/crap4ts test
 composer --working-dir adapters/php/crap4php test
 ```
 
-The contracts that must not drift — flags, JSON shape, exit codes — are listed in
+The contracts that must not drift (flags, JSON shape, exit codes) are listed in
 [AGENTS.md](AGENTS.md). The product contract is [docs/CRAP.md](docs/CRAP.md).
 
-**Known gap:** upstream `crap4go` runs the tests itself; gauntlet requires you to generate
+Known gap: upstream `crap4go` runs the tests itself. gauntlet requires you to generate
 coverage first. The three-line blocks above are the workaround, not the fix.
 
 ## License
