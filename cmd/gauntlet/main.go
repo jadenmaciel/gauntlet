@@ -5,15 +5,26 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/jadenmaciel/gauntlet/internal/thresholds"
 )
 
 const defaultThresholdsPath = ".gauntlet/thresholds.yml"
 
-const starterTemplate = `# Quality threshold ratchet. Floors (direction: min) may only rise;
+// placeholderCeiling is deliberately not a recommendation. A brownfield repo
+// almost never starts under 8, so initializing there makes the very first
+// scorer run fail on code nobody just wrote. Measure a baseline instead:
+//
+//	crap4go --dir . --coverage coverage.out --ceiling 100000 --format json
+//
+// then pass the reported summary.max_crap to "gauntlet init --crap-ceiling".
+const placeholderCeiling = 8
+
+const starterTemplateFormat = `# Quality threshold ratchet. Floors (direction: min) may only rise;
 # ceilings (direction: max) may only fall. Use "gauntlet ratchet" to move
 # a value, never hand-edit it downward/upward.
 #
@@ -21,9 +32,9 @@ const starterTemplate = `# Quality threshold ratchet. Floors (direction: min) ma
 # placeholders. They mean nothing until the first "gauntlet ratchet" call
 # sets them to a real measured baseline.
 metrics:
-  crap_ceiling:
+  crap_ceiling:%s
     direction: max
-    value: 8
+    value: %s
   mutation_efficacy:
     direction: min
     value: 0
@@ -34,6 +45,28 @@ metrics:
     direction: min
     value: 80
 `
+
+// placeholderNote is emitted only when the caller did not supply a measured
+// ceiling, so a hand-written baseline does not get labelled a guess.
+const placeholderNote = `
+    # PLACEHOLDER, not a recommendation. Score your tree first and re-run
+    # "gauntlet init --force --crap-ceiling <measured summary.max_crap>",
+    # then ratchet it down from there.`
+
+func starterTemplate(ceiling float64, measured bool) string {
+	note := placeholderNote
+	if measured {
+		note = ""
+	}
+	return fmt.Sprintf(starterTemplateFormat, note, formatCeiling(ceiling))
+}
+
+func formatCeiling(value float64) string {
+	if value == math.Trunc(value) {
+		return strconv.FormatInt(int64(value), 10)
+	}
+	return strconv.FormatFloat(value, 'f', -1, 64)
+}
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -62,27 +95,44 @@ func run(args []string) error {
 func runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	force := fs.Bool("force", false, "overwrite an existing thresholds file")
+	ceiling := fs.Float64("crap-ceiling", placeholderCeiling, "measured baseline CRAP ceiling to start the ratchet at")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() > 1 {
 		return fmt.Errorf("init accepts at most one path")
 	}
+	if *ceiling <= 0 {
+		return fmt.Errorf("--crap-ceiling must be positive, got %v", *ceiling)
+	}
+
+	measured := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "crap-ceiling" {
+			measured = true
+		}
+	})
 
 	path := defaultThresholdsPath
 	if fs.NArg() > 0 {
 		path = fs.Arg(0)
 	}
 
-	if err := writeStarter(path, *force); err != nil {
+	if err := writeStarter(path, *force, *ceiling, measured); err != nil {
 		return err
 	}
 
 	fmt.Printf("wrote starter thresholds file to %s\n", path)
+	if !measured {
+		fmt.Fprintf(os.Stderr,
+			"gauntlet: crap_ceiling is a placeholder %s, not a measured baseline. "+
+				"Score your tree, then re-run with --force --crap-ceiling <summary.max_crap>.\n",
+			formatCeiling(*ceiling))
+	}
 	return nil
 }
 
-func writeStarter(path string, force bool) error {
+func writeStarter(path string, force bool, ceiling float64, measured bool) error {
 	if !force {
 		if err := requireNewFile(path); err != nil {
 			return err
@@ -91,7 +141,8 @@ func writeStarter(path string, force bool) error {
 	if err := createParentDirectory(path); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(starterTemplate), 0o644); err != nil {
+	body := starterTemplate(ceiling, measured)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return fmt.Errorf("writing thresholds file %q: %w", path, err)
 	}
 	return nil

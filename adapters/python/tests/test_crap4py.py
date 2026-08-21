@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import io
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -215,6 +217,155 @@ class Crap4PyTests(unittest.TestCase):
                     set(function.keys()),
                     {"file", "line", "func", "complexity", "coverage", "crap", "pass"},
                 )
+
+    def test_files_match_allows_suffix_in_either_direction(self) -> None:
+        self.assertTrue(crap4py.files_match("pkg/a.py", "pkg/a.py"))
+        self.assertTrue(crap4py.files_match("a.py", "sub/a.py"))
+        self.assertTrue(crap4py.files_match("sub/a.py", "a.py"))
+        self.assertFalse(crap4py.files_match("ba.py", "a.py"))
+        self.assertFalse(crap4py.files_match("a.py", "b.py"))
+
+    def test_changed_scopes_the_report_to_touched_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_name:
+            tmp_dir = Path(tmp_dir_name)
+            self._write_two_module_repo(tmp_dir)
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            code = crap4py.run(
+                [
+                    "--dir", str(tmp_dir),
+                    "--coverage", str(tmp_dir / "coverage.xml"),
+                    "--ceiling", "30",
+                    "--changed", "HEAD",
+                    "--format", "json",
+                ],
+                stdout,
+                stderr,
+            )
+
+            self.assertEqual(code, 0)
+            output = json.loads(stdout.getvalue())
+            scored = {function["file"] for function in output["functions"]}
+            self.assertEqual(scored, {"touched.py"})
+
+    def test_changed_with_an_empty_diff_warns_instead_of_passing_silently(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_name:
+            tmp_dir = Path(tmp_dir_name)
+            self._write_two_module_repo(tmp_dir, commit_everything=True)
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            code = crap4py.run(
+                [
+                    "--dir", str(tmp_dir),
+                    "--coverage", str(tmp_dir / "coverage.xml"),
+                    "--ceiling", "1",
+                    "--changed", "HEAD",
+                    "--format", "json",
+                ],
+                stdout,
+                stderr,
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn("no files changed", stderr.getvalue())
+            self.assertEqual(json.loads(stdout.getvalue())["summary"]["total"], 0)
+
+    def test_changed_with_an_unknown_ref_is_a_usage_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_name:
+            tmp_dir = Path(tmp_dir_name)
+            self._write_two_module_repo(tmp_dir)
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            code = crap4py.run(
+                [
+                    "--dir", str(tmp_dir),
+                    "--coverage", str(tmp_dir / "coverage.xml"),
+                    "--ceiling", "30",
+                    "--changed", "no-such-ref",
+                ],
+                stdout,
+                stderr,
+            )
+
+            self.assertEqual(code, 2)
+            self.assertIn("merge-base", stderr.getvalue())
+
+    def test_missing_coverage_file_is_a_usage_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_name:
+            tmp_dir = Path(tmp_dir_name)
+            (tmp_dir / "sample.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            code = crap4py.run(
+                ["--dir", str(tmp_dir), "--coverage", str(tmp_dir / "absent.xml"), "--ceiling", "30"],
+                stdout,
+                stderr,
+            )
+
+            self.assertEqual(code, 2)
+
+    def test_missing_ceiling_source_is_a_usage_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_name:
+            tmp_dir = Path(tmp_dir_name)
+            self._write_two_module_repo(tmp_dir)
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            code = crap4py.run(
+                [
+                    "--dir", str(tmp_dir),
+                    "--coverage", str(tmp_dir / "coverage.xml"),
+                    "--thresholds", str(tmp_dir / "absent.yml"),
+                ],
+                stdout,
+                stderr,
+            )
+
+            self.assertEqual(code, 2)
+
+    def _write_two_module_repo(self, tmp_dir: Path, commit_everything: bool = False) -> None:
+        """A git repo with one committed module and one added after the commit.
+
+        With commit_everything the second module is committed too, so the diff
+        against HEAD is empty.
+        """
+        body = "def f(x):\n    if x > 0:\n        return x\n    return -x\n"
+        (tmp_dir / "coverage.xml").write_text(
+            '<?xml version="1.0" ?>\n<coverage><packages></packages></coverage>\n',
+            encoding="utf-8",
+        )
+        (tmp_dir / "committed.py").write_text(body, encoding="utf-8")
+        self._git(tmp_dir, "init", "-q")
+        self._git(tmp_dir, "add", "committed.py", "coverage.xml")
+        self._git(
+            tmp_dir,
+            "-c", "user.name=test",
+            "-c", "user.email=test@example.com",
+            "commit", "-qm", "initial",
+        )
+        (tmp_dir / "touched.py").write_text(body, encoding="utf-8")
+        if commit_everything:
+            self._git(tmp_dir, "add", "touched.py")
+            self._git(
+                tmp_dir,
+                "-c", "user.name=test",
+                "-c", "user.email=test@example.com",
+                "commit", "-qm", "second",
+            )
+
+    def _git(self, cwd: Path, *args: str) -> None:
+        # Ignore the developer's global and system git config. A global
+        # core.hooksPath can drop generated files into the fixture on commit,
+        # which then show up as untracked changes and skew the assertions.
+        env = {
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+        }
+        result = subprocess.run(
+            ["git", *args], cwd=cwd, capture_output=True, text=True, check=False, env=env
+        )
+        if result.returncode != 0:
+            self.fail(f"git {' '.join(args)}: {result.stderr}")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import argparse
 import ast
 import json
 import os
+import subprocess
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -280,6 +281,42 @@ def load_coverage_xml(
     return coverage
 
 
+def _git_output(root_dir: str, args: Sequence[str]) -> str:
+    result = subprocess.run(
+        ["git", *args], cwd=root_dir, capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise ValueError(f"git {' '.join(args)}: {result.stderr.strip()}")
+    return result.stdout
+
+
+def git_changed_files(root_dir: str, ref: str) -> list[str]:
+    """Files touched since the merge base of ref and HEAD, plus untracked ones."""
+    base = _git_output(root_dir, ["merge-base", ref, "HEAD"]).strip()
+    diff = _git_output(root_dir, ["diff", "--name-only", base])
+    untracked = _git_output(root_dir, ["ls-files", "--others", "--exclude-standard"])
+    return [line.strip() for line in (diff + untracked).splitlines() if line.strip()]
+
+
+def files_match(a: str, b: str) -> bool:
+    """Compare two paths allowing a path-segment suffix match either way.
+
+    `git diff --name-only` reports paths from the repo root, while scanned
+    files are relative to --dir, which may sit below it.
+    """
+    a = a.replace("\\", "/")
+    b = b.replace("\\", "/")
+    return a == b or a.endswith("/" + b) or b.endswith("/" + a)
+
+
+def filter_by_changed_files(
+    functions: Iterable[FunctionComplexity], changed_files: Sequence[str]
+) -> list[FunctionComplexity]:
+    return [
+        fn for fn in functions if any(files_match(fn.file, cf) for cf in changed_files)
+    ]
+
+
 def evaluate(
     functions: Iterable[FunctionComplexity], coverage: dict[str, CoverageEntry], ceiling: float
 ) -> Report:
@@ -399,6 +436,11 @@ def parse_options(argv: Sequence[str], stderr: TextIO) -> argparse.Namespace:
         default=None,
         help="override CRAP ceiling (otherwise read from --thresholds)",
     )
+    parser.add_argument(
+        "--changed",
+        default="",
+        help="git ref; when set, scope to files changed since this ref",
+    )
     parser.add_argument("--format", default="text", choices=("text", "json"))
     return parser.parse_args(argv)
 
@@ -453,6 +495,14 @@ def run(argv: Sequence[str], stdout: TextIO, stderr: TextIO) -> int:
             ceiling = read_ceiling_from_thresholds(options.thresholds)
 
         functions = scan_dir(options.dir)
+        if options.changed:
+            changed_files = git_changed_files(options.dir, options.changed)
+            if not changed_files:
+                stderr.write(
+                    f"crap4py: no files changed since {options.changed!r}; "
+                    "nothing was scored\n"
+                )
+            functions = filter_by_changed_files(functions, changed_files)
         coverage = load_coverage_xml(options.coverage, options.dir, functions)
         report = evaluate(functions, coverage, ceiling)
 

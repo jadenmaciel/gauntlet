@@ -1,10 +1,10 @@
 BIN_DIR ?= bin
 BASE_BRANCH ?= main
 THRESHOLDS_FILE ?= .gauntlet/thresholds.yml
-COVERAGE_JSON ?= coverage/coverage-final.json
+COVERAGE_FILE ?= coverage/coverage-final.json
 
 GAUNTLET_REPO ?= https://github.com/jadenmaciel/gauntlet.git
-GAUNTLET_VERSION ?= main
+GAUNTLET_VERSION ?= v0.2.0
 CRAP4TS_ROOT ?= .tools/gauntlet
 CRAP4TS_DIR := $(CRAP4TS_ROOT)/adapters/typescript/crap4ts
 CRAP4TS_BIN := $(CRAP4TS_DIR)/dist/cli.js
@@ -23,7 +23,12 @@ cover-ts:
 
 .PHONY: crap
 crap: cover-ts gauntlet-ts-tools
-	node $(CRAP4TS_BIN) --dir . --coverage $(COVERAGE_JSON) --thresholds $(THRESHOLDS_FILE) --format text
+	node $(CRAP4TS_BIN) --dir . --coverage $(COVERAGE_FILE) --thresholds $(THRESHOLDS_FILE) \
+		--changed origin/$(BASE_BRANCH)
+
+.PHONY: crap-all
+crap-all: cover-ts gauntlet-ts-tools
+	node $(CRAP4TS_BIN) --dir . --coverage $(COVERAGE_FILE) --thresholds $(THRESHOLDS_FILE)
 
 # Add `crap` as a prerequisite of your existing check target:
 #

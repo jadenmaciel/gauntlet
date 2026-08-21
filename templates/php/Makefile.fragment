@@ -5,8 +5,10 @@
 
 PHP ?= php
 COMPOSER ?= composer
+BASE_BRANCH ?= main
 CRAP4PHP_DIR ?= tools/crap4php
-CLOVER_FILE ?= build/coverage/clover.xml
+THRESHOLDS_FILE ?= .gauntlet/thresholds.yml
+COVERAGE_FILE ?= build/coverage/clover.xml
 CRAP4PHP_SOURCE_DIR ?= src
 
 .PHONY: gauntlet-tools-php
@@ -15,11 +17,17 @@ gauntlet-tools-php:
 
 .PHONY: cover-php
 cover-php:
-	vendor/bin/phpunit --coverage-clover $(CLOVER_FILE)
+	vendor/bin/phpunit --coverage-clover $(COVERAGE_FILE)
 
 .PHONY: crap-php
 crap-php: cover-php gauntlet-tools-php
-	$(PHP) $(CRAP4PHP_DIR)/bin/crap4php --dir $(CRAP4PHP_SOURCE_DIR) --coverage $(CLOVER_FILE) --format json
+	$(PHP) $(CRAP4PHP_DIR)/bin/crap4php --dir $(CRAP4PHP_SOURCE_DIR) --coverage $(COVERAGE_FILE) \
+		--thresholds $(THRESHOLDS_FILE) --changed origin/$(BASE_BRANCH)
+
+.PHONY: crap-php-all
+crap-php-all: cover-php gauntlet-tools-php
+	$(PHP) $(CRAP4PHP_DIR)/bin/crap4php --dir $(CRAP4PHP_SOURCE_DIR) --coverage $(COVERAGE_FILE) \
+		--thresholds $(THRESHOLDS_FILE)
 
 # Add `crap-php` to your existing check target, for example:
 #

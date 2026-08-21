@@ -7,15 +7,15 @@
 BIN_DIR ?= bin
 BASE_BRANCH ?= main
 
-# Ceiling/floor come from gauntlet's nested thresholds YAML.
+# crap4go reads this file itself via --thresholds. gremlins cannot, so its
+# floor is still scraped out with awk below.
 THRESHOLDS_FILE ?= .gauntlet/thresholds.yml
-COVER_PROFILE ?= coverage.out
-CRAP_CEILING := $(shell awk '/^  crap_ceiling:/{found=1; next} found && /^    value:/{print $$2; exit}' $(THRESHOLDS_FILE))
+COVERAGE_FILE ?= coverage.out
 MCOVER_FLOOR := $(shell awk '/^  mutation_mcover:/{found=1; next} found && /^    value:/{print $$2; exit}' $(THRESHOLDS_FILE))
 
 # Pin crap4go and gauntlet to a release tag. Do not float on latest.
-CRAP4GO_VERSION ?= v0.1.0
-GAUNTLET_VERSION ?= v0.1.0
+CRAP4GO_VERSION ?= v0.2.0
+GAUNTLET_VERSION ?= v0.2.0
 GREMLINS_VERSION ?= latest
 
 .PHONY: gauntlet-tools
@@ -26,7 +26,11 @@ gauntlet-tools:
 
 .PHONY: crap
 crap: cover gauntlet-tools
-	$(BIN_DIR)/crap4go --dir . --profile $(COVER_PROFILE) --ceiling $(CRAP_CEILING) --changed origin/$(BASE_BRANCH)
+	$(BIN_DIR)/crap4go --dir . --coverage $(COVERAGE_FILE) --thresholds $(THRESHOLDS_FILE) --changed origin/$(BASE_BRANCH)
+
+.PHONY: crap-all
+crap-all: cover gauntlet-tools
+	$(BIN_DIR)/crap4go --dir . --coverage $(COVERAGE_FILE) --thresholds $(THRESHOLDS_FILE)
 
 .PHONY: mutation
 mutation: gauntlet-tools

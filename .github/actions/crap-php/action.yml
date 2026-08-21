@@ -1,0 +1,84 @@
+name: crap4php
+description: Install pinned crap4php and fail if any PHP function exceeds the CRAP ceiling.
+inputs:
+  coverage:
+    description: Path to a PHPUnit Clover XML report.
+    required: true
+  dir:
+    description: Directory to scan for .php files.
+    required: false
+    default: "src"
+  thresholds:
+    description: Nested thresholds YAML holding metrics.crap_ceiling.value.
+    required: false
+    default: ".gauntlet/thresholds.yml"
+  ceiling:
+    description: Numeric ceiling override. Wins over `thresholds` when set.
+    required: false
+    default: ""
+  changed-ref:
+    description: Git ref for --changed. Empty scores the whole tree.
+    required: false
+    default: ""
+  format:
+    description: text or json.
+    required: false
+    default: text
+  working-directory:
+    description: Working directory for git, coverage, and the scan.
+    required: false
+    default: "."
+  version:
+    description: gauntlet tag to install crap4php from.
+    required: false
+    default: v0.2.0
+runs:
+  using: composite
+  steps:
+    - name: Install crap4php
+      shell: bash
+      run: |
+        set -euo pipefail
+        for tool in php composer; do
+          if ! command -v "$tool" >/dev/null; then
+            echo "crap-php: $tool is not on PATH. Use shivammathur/setup-php before this Action." >&2
+            exit 2
+          fi
+        done
+        # No packagist release yet, so install from a pinned checkout.
+        checkout="${RUNNER_TEMP}/gauntlet-crap4php"
+        rm -rf "$checkout"
+        git clone --depth 1 --branch "${{ inputs.version }}" \
+          https://github.com/jadenmaciel/gauntlet "$checkout"
+        composer install --working-dir "$checkout/adapters/php/crap4php" \
+          --no-interaction --prefer-dist --no-dev
+        echo "CRAP4PHP_BIN=$checkout/adapters/php/crap4php/bin/crap4php" >> "$GITHUB_ENV"
+    - name: Run crap4php
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CRAP_COVERAGE: ${{ inputs.coverage }}
+        CRAP_DIR: ${{ inputs.dir }}
+        CRAP_THRESHOLDS: ${{ inputs.thresholds }}
+        CRAP_CEILING: ${{ inputs.ceiling }}
+        CRAP_CHANGED: ${{ inputs.changed-ref }}
+        CRAP_FORMAT: ${{ inputs.format }}
+      run: |
+        set -euo pipefail
+        if [ ! -f "$CRAP_COVERAGE" ]; then
+          echo "crap-php: coverage report $CRAP_COVERAGE does not exist. Clover XML needs Xdebug or PCOV enabled." >&2
+          exit 2
+        fi
+        args=(--dir "$CRAP_DIR" --coverage "$CRAP_COVERAGE" --format "$CRAP_FORMAT")
+        if [ -n "$CRAP_CEILING" ]; then
+          args+=(--ceiling "$CRAP_CEILING")
+        else
+          args+=(--thresholds "$CRAP_THRESHOLDS")
+        fi
+        if [ -n "$CRAP_CHANGED" ]; then
+          if ! git rev-parse --verify "${CRAP_CHANGED}^{commit}" >/dev/null 2>&1; then
+            git fetch --no-tags origin "${CRAP_CHANGED#origin/}"
+          fi
+          args+=(--changed "$CRAP_CHANGED")
+        fi
+        php "$CRAP4PHP_BIN" "${args[@]}"

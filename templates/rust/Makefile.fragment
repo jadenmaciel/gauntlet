@@ -3,18 +3,17 @@
 # Copy the pieces you need into your repo's real Makefile.
 
 BIN_DIR ?= bin
+BASE_BRANCH ?= main
 THRESHOLDS_FILE ?= .gauntlet/thresholds.yml
-CRAP4RS_COVERAGE_JSON ?= target/llvm-cov.json
+COVERAGE_FILE ?= target/llvm-cov.json
 
-CRAP4RS_CEILING := $(shell awk '/^  crap_ceiling:/{found=1; next} found && /^    value:/{print $$2; exit}' $(THRESHOLDS_FILE))
-
-GAUNTLET_VERSION ?=
+GAUNTLET_VERSION ?= v0.2.0
 GAUNTLET_CHECKOUT_DIR ?= .gauntlet-tools/gauntlet
 CARGO_LLVM_COV_VERSION ?= 0.6.21
 
 .PHONY: crap4rs-tools
 crap4rs-tools:
-	test -n "$(GAUNTLET_VERSION)" || { echo "Set GAUNTLET_VERSION to a release that contains crap4rs"; exit 2; }
+	test -n "$(GAUNTLET_VERSION)" || { echo "Set GAUNTLET_VERSION to a gauntlet tag (v0.2.0 or later)"; exit 2; }
 	rustup component add llvm-tools-preview
 	cargo install cargo-llvm-cov --version $(CARGO_LLVM_COV_VERSION) --locked
 	test -d "$(GAUNTLET_CHECKOUT_DIR)" || git clone --depth 1 --branch $(GAUNTLET_VERSION) https://github.com/jadenmaciel/gauntlet "$(GAUNTLET_CHECKOUT_DIR)"
@@ -24,8 +23,12 @@ crap4rs-tools:
 
 .PHONY: rust-coverage
 rust-coverage: crap4rs-tools
-	cargo llvm-cov --json --output-path "$(CRAP4RS_COVERAGE_JSON)"
+	cargo llvm-cov --json --output-path "$(COVERAGE_FILE)"
 
 .PHONY: crap-rust
 crap-rust: rust-coverage
-	$(BIN_DIR)/crap4rs --dir . --coverage-json "$(CRAP4RS_COVERAGE_JSON)" --ceiling "$(CRAP4RS_CEILING)" --format text
+	$(BIN_DIR)/crap4rs --dir . --coverage "$(COVERAGE_FILE)" --thresholds $(THRESHOLDS_FILE) --changed origin/$(BASE_BRANCH)
+
+.PHONY: crap-rust-all
+crap-rust-all: rust-coverage
+	$(BIN_DIR)/crap4rs --dir . --coverage "$(COVERAGE_FILE)" --thresholds $(THRESHOLDS_FILE)

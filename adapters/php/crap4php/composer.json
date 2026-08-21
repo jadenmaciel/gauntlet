@@ -1,7 +1,7 @@
 {
   "name": "jadenmaciel/crap4php",
   "description": "CRAP scorer for PHP using cyclomatic complexity and clover coverage",
-  "type": "project",
+  "type": "library",
   "bin": [
     "bin/crap4php"
   ],

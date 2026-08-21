@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="${GAUNTLET_VERSION:-v0.1.0}"
+version="${GAUNTLET_VERSION:-v0.2.0}"
 dest="${GAUNTLET_BIN_DIR:-$HOME/.local/bin}"
 
 if ! command -v go >/dev/null; then

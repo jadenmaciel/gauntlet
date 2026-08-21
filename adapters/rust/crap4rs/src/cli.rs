@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use serde::Serialize;
 
@@ -21,6 +22,7 @@ struct Options {
     coverage_json: PathBuf,
     ceiling_file: PathBuf,
     ceiling_override: Option<f64>,
+    changed: Option<String>,
     format: OutputFormat,
 }
 
@@ -71,7 +73,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
 fn run_with_options(
     options: Options,
     stdout: &mut dyn Write,
-    _stderr: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<i32, String> {
     let root = std::fs::canonicalize(&options.dir)
         .map_err(|error| format!("resolving scan root {}: {error}", options.dir.display()))?;
@@ -79,6 +81,20 @@ fn run_with_options(
     let ceiling_file_path = resolve_path(&options.ceiling_file, &root);
     let mut functions = scan_dir(&root)?;
     functions.sort_by(sort_complexity_records);
+    if let Some(reference) = &options.changed {
+        let changed_files = git_changed_files(&root, reference)?;
+        if changed_files.is_empty() {
+            let _ = writeln!(
+                stderr,
+                "crap4rs: no files changed since {reference:?}; nothing was scored"
+            );
+        }
+        functions.retain(|function| {
+            changed_files
+                .iter()
+                .any(|candidate| files_match(&function.file, candidate))
+        });
+    }
 
     let coverage = parse_llvm_cov_json(&coverage_json_path, &root)?;
     let ceiling = if let Some(override_value) = options.ceiling_override {
@@ -179,9 +195,12 @@ fn print_text(stdout: &mut dyn Write, report: &Report) {
 
 fn parse_options(args: &[String]) -> Result<Options, String> {
     let mut dir = PathBuf::from(".");
-    let mut coverage_json = PathBuf::from("coverage.json");
+    // Matches what the documented `cargo llvm-cov --json --output-path` writes.
+    // The old default of "coverage.json" was never the path any doc produced.
+    let mut coverage_json = PathBuf::from("target/llvm-cov.json");
     let mut ceiling_file = PathBuf::from(".gauntlet/thresholds.yml");
     let mut ceiling_override = None;
+    let mut changed = None;
     let mut format = OutputFormat::Text;
 
     let mut index = 0;
@@ -191,13 +210,18 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
                 index += 1;
                 dir = parse_path_arg(args, index, "--dir")?;
             }
-            "--coverage-json" => {
+            // --coverage-json and --ceiling-file are the pre-v0.2.0 names.
+            "--coverage" | "--coverage-json" => {
                 index += 1;
-                coverage_json = parse_path_arg(args, index, "--coverage-json")?;
+                coverage_json = parse_path_arg(args, index, "--coverage")?;
             }
-            "--ceiling-file" => {
+            "--thresholds" | "--ceiling-file" => {
                 index += 1;
-                ceiling_file = parse_path_arg(args, index, "--ceiling-file")?;
+                ceiling_file = parse_path_arg(args, index, "--thresholds")?;
+            }
+            "--changed" => {
+                index += 1;
+                changed = Some(parse_string_arg(args, index, "--changed")?);
             }
             "--ceiling" => {
                 index += 1;
@@ -228,6 +252,7 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
         coverage_json,
         ceiling_file,
         ceiling_override,
+        changed,
         format,
     })
 }
@@ -257,7 +282,48 @@ fn parse_string_arg(args: &[String], index: usize, flag: &str) -> Result<String,
 }
 
 fn help_text() -> &'static str {
-    "usage: crap4rs [--dir <dir>] [--coverage-json <path>] [--ceiling-file <path>] [--ceiling <n>] [--format text|json]"
+    "usage: crap4rs [--dir <dir>] [--coverage <path>] [--thresholds <path>] [--ceiling <n>] [--changed <ref>] [--format text|json]"
+}
+
+/// Files touched since the merge base of `reference` and HEAD, plus untracked
+/// ones.
+fn git_changed_files(root: &Path, reference: &str) -> Result<Vec<String>, String> {
+    let base = git_output(root, &["merge-base", reference, "HEAD"])?;
+    let diff = git_output(root, &["diff", "--name-only", base.trim()])?;
+    let untracked = git_output(root, &["ls-files", "--others", "--exclude-standard"])?;
+    Ok(diff
+        .lines()
+        .chain(untracked.lines())
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+fn git_output(root: &Path, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("running git {}: {error}", args.join(" ")))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    String::from_utf8(output.stdout)
+        .map_err(|error| format!("git {} produced invalid UTF-8: {error}", args.join(" ")))
+}
+
+/// Compare two paths allowing a path-segment suffix match either way, because
+/// `git diff --name-only` reports paths from the repo root while scanned files
+/// are relative to --dir, which may sit below it.
+fn files_match(left: &str, right: &str) -> bool {
+    let left = left.replace('\\', "/");
+    let right = right.replace('\\', "/");
+    left == right || left.ends_with(&format!("/{right}")) || right.ends_with(&format!("/{left}"))
 }
 
 #[cfg(test)]
@@ -265,6 +331,7 @@ mod tests {
     use std::fs;
     use std::io::Cursor;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use serde_json::Value;
@@ -370,6 +437,239 @@ mod tests {
         assert_eq!(functions[1]["pass"], true);
     }
 
+    #[test]
+    fn accepts_canonical_coverage_and_thresholds_flags() {
+        let fixture = write_fixture_project();
+        let mut stdout = Cursor::new(Vec::new());
+        let mut stderr = Cursor::new(Vec::new());
+        let args = vec![
+            "--dir".to_string(),
+            fixture.to_string_lossy().to_string(),
+            "--coverage".to_string(),
+            fixture.join("coverage.json").to_string_lossy().to_string(),
+            "--thresholds".to_string(),
+            fixture
+                .join(".gauntlet/thresholds.yml")
+                .to_string_lossy()
+                .to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+
+        let code = run(&args, &mut stdout, &mut stderr);
+        assert_eq!(code, 0, "stderr={}", bytes_to_string(stderr.get_ref()));
+        let report: Value = serde_json::from_slice(stdout.get_ref()).expect("valid json");
+        assert_eq!(report["functions"].as_array().expect("array").len(), 2);
+    }
+
+    #[test]
+    fn ceiling_flag_overrides_the_thresholds_file() {
+        let fixture = write_fixture_project();
+        let mut stdout = Cursor::new(Vec::new());
+        let mut stderr = Cursor::new(Vec::new());
+        let args = vec![
+            "--dir".to_string(),
+            fixture.to_string_lossy().to_string(),
+            "--coverage".to_string(),
+            fixture
+                .join("coverage-none.json")
+                .to_string_lossy()
+                .to_string(),
+            "--thresholds".to_string(),
+            fixture
+                .join(".gauntlet/thresholds.yml")
+                .to_string_lossy()
+                .to_string(),
+            "--ceiling".to_string(),
+            "30".to_string(),
+        ];
+
+        let code = run(&args, &mut stdout, &mut stderr);
+        assert_eq!(code, 0, "stderr={}", bytes_to_string(stderr.get_ref()));
+    }
+
+    #[test]
+    fn missing_ceiling_source_is_a_usage_error() {
+        let fixture = write_fixture_project();
+        let mut stdout = Cursor::new(Vec::new());
+        let mut stderr = Cursor::new(Vec::new());
+        let args = vec![
+            "--dir".to_string(),
+            fixture.to_string_lossy().to_string(),
+            "--coverage".to_string(),
+            fixture.join("coverage.json").to_string_lossy().to_string(),
+            "--thresholds".to_string(),
+            fixture.join("absent.yml").to_string_lossy().to_string(),
+        ];
+
+        assert_eq!(run(&args, &mut stdout, &mut stderr), 2);
+    }
+
+    #[test]
+    fn missing_coverage_file_is_a_usage_error() {
+        let fixture = write_fixture_project();
+        let mut stdout = Cursor::new(Vec::new());
+        let mut stderr = Cursor::new(Vec::new());
+        let args = vec![
+            "--dir".to_string(),
+            fixture.to_string_lossy().to_string(),
+            "--coverage".to_string(),
+            fixture.join("absent.json").to_string_lossy().to_string(),
+            "--ceiling".to_string(),
+            "30".to_string(),
+        ];
+
+        assert_eq!(run(&args, &mut stdout, &mut stderr), 2);
+    }
+
+    #[test]
+    fn changed_scopes_the_report_to_touched_files() {
+        let fixture = write_git_fixture_project(false);
+        let mut stdout = Cursor::new(Vec::new());
+        let mut stderr = Cursor::new(Vec::new());
+        let args = vec![
+            "--dir".to_string(),
+            fixture.to_string_lossy().to_string(),
+            "--coverage".to_string(),
+            fixture
+                .join("coverage-none.json")
+                .to_string_lossy()
+                .to_string(),
+            "--ceiling".to_string(),
+            "30".to_string(),
+            "--changed".to_string(),
+            "HEAD".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+
+        let code = run(&args, &mut stdout, &mut stderr);
+        assert_eq!(code, 0, "stderr={}", bytes_to_string(stderr.get_ref()));
+        let report: Value = serde_json::from_slice(stdout.get_ref()).expect("valid json");
+        let files: Vec<String> = report["functions"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .map(|function| function["file"].as_str().expect("file").to_string())
+            .collect();
+        assert_eq!(files, vec!["src/touched.rs".to_string()]);
+    }
+
+    #[test]
+    fn changed_with_an_empty_diff_warns_instead_of_passing_silently() {
+        let fixture = write_git_fixture_project(true);
+        let mut stdout = Cursor::new(Vec::new());
+        let mut stderr = Cursor::new(Vec::new());
+        let args = vec![
+            "--dir".to_string(),
+            fixture.to_string_lossy().to_string(),
+            "--coverage".to_string(),
+            fixture
+                .join("coverage-none.json")
+                .to_string_lossy()
+                .to_string(),
+            "--ceiling".to_string(),
+            "1".to_string(),
+            "--changed".to_string(),
+            "HEAD".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+
+        let code = run(&args, &mut stdout, &mut stderr);
+        assert_eq!(code, 0, "stderr={}", bytes_to_string(stderr.get_ref()));
+        assert!(
+            bytes_to_string(stderr.get_ref()).contains("no files changed"),
+            "stderr={}",
+            bytes_to_string(stderr.get_ref())
+        );
+        let report: Value = serde_json::from_slice(stdout.get_ref()).expect("valid json");
+        assert_eq!(report["summary"]["total"], 0);
+    }
+
+    #[test]
+    fn changed_with_an_unknown_ref_is_a_usage_error() {
+        let fixture = write_git_fixture_project(false);
+        let mut stdout = Cursor::new(Vec::new());
+        let mut stderr = Cursor::new(Vec::new());
+        let args = vec![
+            "--dir".to_string(),
+            fixture.to_string_lossy().to_string(),
+            "--coverage".to_string(),
+            fixture
+                .join("coverage-none.json")
+                .to_string_lossy()
+                .to_string(),
+            "--ceiling".to_string(),
+            "30".to_string(),
+            "--changed".to_string(),
+            "no-such-ref".to_string(),
+        ];
+
+        assert_eq!(run(&args, &mut stdout, &mut stderr), 2);
+        assert!(bytes_to_string(stderr.get_ref()).contains("merge-base"));
+    }
+
+    #[test]
+    fn files_match_allows_a_suffix_in_either_direction() {
+        assert!(super::files_match("src/lib.rs", "src/lib.rs"));
+        assert!(super::files_match("lib.rs", "src/lib.rs"));
+        assert!(super::files_match("src/lib.rs", "lib.rs"));
+        assert!(!super::files_match("mylib.rs", "lib.rs"));
+        assert!(!super::files_match("src/a.rs", "src/b.rs"));
+    }
+
+    fn write_git_fixture_project(commit_everything: bool) -> PathBuf {
+        let root = write_fixture_project();
+        git(&root, &["init", "-q"]);
+        git(&root, &["add", "."]);
+        commit(&root, "initial");
+        fs::write(
+            root.join("src/touched.rs"),
+            "pub fn touched(v: i32) -> i32 {\n    if v > 0 { 1 } else { 0 }\n}\n",
+        )
+        .expect("write touched source");
+        if commit_everything {
+            git(&root, &["add", "."]);
+            commit(&root, "second");
+        }
+        root
+    }
+
+    fn commit(root: &PathBuf, message: &str) {
+        git(
+            root,
+            &[
+                "-c",
+                "user.name=test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-qm",
+                message,
+            ],
+        );
+    }
+
+    fn git(root: &PathBuf, args: &[&str]) {
+        // Ignore the developer's global and system git config. A global
+        // core.hooksPath can drop generated files into the fixture on commit,
+        // which then show up as untracked changes and skew the assertions.
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     fn write_fixture_project() -> PathBuf {
         let root = new_temp_dir("cli");
         let src_dir = root.join("src");
@@ -411,12 +711,20 @@ pub fn cold() -> i32 {
         String::from_utf8_lossy(buffer).to_string()
     }
 
+    // The clock alone is not a unique name. `cargo test` runs these in parallel
+    // threads and SystemTime here is only microsecond-resolution, so two
+    // fixtures really do land on the same nanos value and the second one then
+    // reuses the first's half-built directory. The counter makes the name unique
+    // per call; the pid keeps concurrent `cargo test` runs apart.
     fn new_temp_dir(prefix: &str) -> PathBuf {
-        let suffix = SystemTime::now()
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("crap4rs-{prefix}-{suffix}"));
+        let ordinal = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("crap4rs-{prefix}-{pid}-{ordinal}-{nanos}"));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }

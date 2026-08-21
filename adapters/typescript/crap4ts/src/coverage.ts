@@ -203,9 +203,31 @@ function locationKey(file: string, line: number): string {
 }
 
 function normalizeFile(filePath: string, rootDir: string): string {
-  const abs = path.isAbsolute(filePath) ? filePath : path.resolve(rootDir, filePath);
-  const rel = path.relative(rootDir, abs);
-  return rel.split(path.sep).join("/");
+  const rawRoot = path.resolve(rootDir);
+  const rawAbs = path.isAbsolute(filePath) ? filePath : path.resolve(rootDir, filePath);
+  const raw = path.relative(rawRoot, rawAbs);
+  if (!raw.startsWith("..")) {
+    return toPosix(raw);
+  }
+  // The coverage path did not sit under the scan root as written, so retry with
+  // symlinks resolved on both sides. Coverage tools record the path the test run
+  // saw, which on macOS routinely goes through a symlink (/var resolves to
+  // /private/var); relativizing across that boundary produces a "../.." key that
+  // matches nothing, and every function then silently reports 0% coverage.
+  const resolved = path.relative(realpathOrSelf(rawRoot), realpathOrSelf(rawAbs));
+  return toPosix(resolved.startsWith("..") ? raw : resolved);
+}
+
+function realpathOrSelf(target: string): string {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return target;
+  }
+}
+
+function toPosix(value: string): string {
+  return value.split(path.sep).join("/");
 }
 
 function clampCoverage(value: number): number {

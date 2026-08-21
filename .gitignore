@@ -1,0 +1,26 @@
+# Build and tool output. Per-language ignores live next to their adapter
+# (adapters/python/.gitignore, adapters/typescript/crap4ts/.gitignore); this file
+# covers what the repo root sees.
+
+# Rust
+adapters/rust/crap4rs/target/
+
+# PHP
+adapters/php/crap4php/vendor/
+adapters/php/crap4php/.phpunit.cache/
+
+# Python packaging
+adapters/python/build/
+adapters/python/dist/
+*.egg-info/
+
+# Coverage reports the documented commands write
+coverage.out
+coverage.xml
+coverage-final.json
+lcov.info
+clover.xml
+target/llvm-cov.json
+
+# Written into every repo on commit by a graphify git hook, not by this project.
+graphify-out/

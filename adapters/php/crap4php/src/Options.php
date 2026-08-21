@@ -12,6 +12,7 @@ final class Options
         public readonly ?float $ceiling,
         public readonly string $thresholds,
         public readonly string $format,
+        public readonly string $changed,
     ) {
     }
 }

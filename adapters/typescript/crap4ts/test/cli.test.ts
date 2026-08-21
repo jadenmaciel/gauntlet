@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
 import test from "node:test";
 
-import { run } from "../src/cli.js";
+import { filesMatch, run } from "../src/cli.js";
 
 class StringSink extends Writable {
   private readonly chunks: string[] = [];
@@ -123,6 +124,125 @@ test("cli honors --ceiling override", async () => {
   assert.equal(decoded.ceiling, 100);
   assert.equal(decoded.summary.failing, 0);
 });
+
+test("cli scopes the report to files changed since --changed", async () => {
+  const fixture = writeGitFixtureProject(false);
+  const stdout = new StringSink();
+  const stderr = new StringSink();
+
+  const code = await run(
+    ["--dir", fixture.dir, "--coverage", fixture.lowCoveragePath, "--ceiling", "100", "--changed", "HEAD", "--format", "json"],
+    stdout,
+    stderr,
+  );
+
+  assert.equal(code, 0, stderr.text());
+  const decoded = JSON.parse(stdout.text()) as { functions: { file: string }[] };
+  assert.deepEqual(
+    decoded.functions.map((fn) => fn.file),
+    ["src/touched.ts"],
+  );
+});
+
+test("cli warns instead of passing silently when --changed finds an empty diff", async () => {
+  const fixture = writeGitFixtureProject(true);
+  const stdout = new StringSink();
+  const stderr = new StringSink();
+
+  const code = await run(
+    ["--dir", fixture.dir, "--coverage", fixture.lowCoveragePath, "--ceiling", "1", "--changed", "HEAD", "--format", "json"],
+    stdout,
+    stderr,
+  );
+
+  assert.equal(code, 0, stderr.text());
+  assert.match(stderr.text(), /no files changed/);
+  const decoded = JSON.parse(stdout.text()) as { summary: { total: number } };
+  assert.equal(decoded.summary.total, 0);
+});
+
+test("cli reports an unknown --changed ref as a usage error", async () => {
+  const fixture = writeGitFixtureProject(false);
+  const stdout = new StringSink();
+  const stderr = new StringSink();
+
+  const code = await run(
+    ["--dir", fixture.dir, "--coverage", fixture.lowCoveragePath, "--ceiling", "100", "--changed", "no-such-ref"],
+    stdout,
+    stderr,
+  );
+
+  assert.equal(code, 2);
+  assert.match(stderr.text(), /merge-base/);
+});
+
+test("cli reports a missing coverage file as a usage error", async () => {
+  const fixture = writeFixtureProject();
+  const stdout = new StringSink();
+  const stderr = new StringSink();
+
+  const code = await run(
+    ["--dir", fixture.dir, "--coverage", path.join(fixture.dir, "absent.json"), "--ceiling", "100"],
+    stdout,
+    stderr,
+  );
+
+  assert.equal(code, 2);
+});
+
+test("cli reports a missing ceiling source as a usage error", async () => {
+  const fixture = writeFixtureProject();
+  const stdout = new StringSink();
+  const stderr = new StringSink();
+
+  const code = await run(
+    ["--dir", fixture.dir, "--coverage", fixture.lowCoveragePath, "--thresholds", path.join(fixture.dir, "absent.yml")],
+    stdout,
+    stderr,
+  );
+
+  assert.equal(code, 2);
+});
+
+test("filesMatch allows a path-segment suffix in either direction", () => {
+  assert.equal(filesMatch("src/hot.ts", "src/hot.ts"), true);
+  assert.equal(filesMatch("hot.ts", "src/hot.ts"), true);
+  assert.equal(filesMatch("src/hot.ts", "hot.ts"), true);
+  assert.equal(filesMatch("nothot.ts", "hot.ts"), false);
+  assert.equal(filesMatch("src/a.ts", "src/b.ts"), false);
+});
+
+function writeGitFixtureProject(commitEverything: boolean): FixtureProject {
+  const fixture = writeFixtureProject();
+  git(fixture.dir, ["init", "-q"]);
+  git(fixture.dir, ["add", "."]);
+  commit(fixture.dir, "initial");
+  fs.writeFileSync(
+    path.join(fixture.dir, "src/touched.ts"),
+    "export function touched(input: number): number {\n  if (input > 0) return 1;\n  return 0;\n}\n",
+    "utf8",
+  );
+  if (commitEverything) {
+    git(fixture.dir, ["add", "."]);
+    commit(fixture.dir, "second");
+  }
+  return fixture;
+}
+
+function commit(dir: string, message: string): void {
+  git(dir, ["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-qm", message]);
+}
+
+function git(dir: string, args: string[]): void {
+  // Ignore the developer's global and system git config. A global
+  // core.hooksPath can drop generated files into the fixture on commit, which
+  // then show up as untracked changes and skew the assertions.
+  execFileSync("git", args, {
+    cwd: dir,
+    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+    stdio: "ignore",
+  });
+}
 
 interface FixtureProject {
   dir: string;

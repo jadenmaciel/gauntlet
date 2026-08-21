@@ -46,16 +46,32 @@ final class Application
             throw new \RuntimeException(sprintf('scan directory not found: %s', $options->dir));
         }
 
+        // Without a coverage report every function would score as untested,
+        // which reads as a real result instead of a missing input.
+        if ($options->coverage === null) {
+            throw new \RuntimeException(
+                '--coverage is required; generate one with `phpunit --coverage-clover coverage.xml`'
+            );
+        }
+
         $normalizer = new PathNormalizer($scanDir);
         $scanner = new ComplexityScanner($normalizer);
         $functions = $scanner->scanDirectory($scanDir);
 
-        $coverageByKey = [];
-        if ($options->coverage !== null) {
-            $coveragePath = $this->resolvePath($options->coverage);
-            $coverageByKey = (new CloverCoverageParser($normalizer))
-                ->coverageForFunctions($coveragePath, $functions);
+        if ($options->changed !== '') {
+            $changedFiles = (new Git($scanDir))->changedFiles($options->changed);
+            if ($changedFiles === []) {
+                fwrite($stderr, sprintf(
+                    "crap4php: no files changed since \"%s\"; nothing was scored\n",
+                    $options->changed
+                ));
+            }
+            $functions = ChangedFileFilter::apply($functions, $changedFiles);
         }
+
+        $coveragePath = $this->resolvePath($options->coverage);
+        $coverageByKey = (new CloverCoverageParser($normalizer))
+            ->coverageForFunctions($coveragePath, $functions);
 
         $ceiling = $options->ceiling;
         if ($ceiling === null) {
@@ -83,9 +99,10 @@ final class Application
         return <<<TXT
 Usage: crap4php [options]
   --dir <path>         directory to scan for .php files (default: .)
-  --coverage <path>    path to PHPUnit clover XML coverage
+  --coverage <path>    path to PHPUnit clover XML coverage (required)
   --ceiling <number>   override CRAP ceiling
   --thresholds <path>  thresholds file (default: .gauntlet/thresholds.yml)
+  --changed <ref>      score only files changed since this git ref
   --format <text|json> output format (default: text)
 
 TXT;
