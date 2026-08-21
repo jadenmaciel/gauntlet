@@ -1,17 +1,30 @@
 name: crap4go
-description: Install pinned crap4go and fail if any function exceeds the CRAP ceiling.
+description: Install pinned crap4go and fail if any Go function exceeds the CRAP ceiling.
 inputs:
+  coverage:
+    description: Path to a Go coverage profile from `go test -coverprofile`.
+    required: false
+    default: ""
   profile:
-    description: Path to a go coverage profile from go test -coverprofile.
-    required: true
+    description: Deprecated alias for `coverage`, kept for pre-v0.2.0 callers.
+    required: false
+    default: ""
   dir:
     description: Directory to scan for .go files.
     required: false
     default: "."
-  ceiling-file:
-    description: Nested thresholds YAML with metrics.crap_ceiling.value.
+  thresholds:
+    description: Nested thresholds YAML holding metrics.crap_ceiling.value.
     required: false
     default: ".gauntlet/thresholds.yml"
+  ceiling-file:
+    description: Deprecated alias for `thresholds`, kept for pre-v0.2.0 callers.
+    required: false
+    default: ""
+  ceiling:
+    description: Numeric ceiling override. Wins over `thresholds` when set.
+    required: false
+    default: ""
   changed-ref:
     description: Git ref for --changed. Empty scores the whole tree.
     required: false
@@ -23,7 +36,7 @@ inputs:
   version:
     description: crap4go module version.
     required: false
-    default: v0.1.0
+    default: v0.2.0
 runs:
   using: composite
   steps:
@@ -44,19 +57,35 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
-        ceiling_file="${{ inputs.ceiling-file }}"
-        ceiling="$(awk '/^  crap_ceiling:/{found=1; next} found && /^    value:/{print $2; exit}' "$ceiling_file")"
-        if [ -z "$ceiling" ]; then
-          echo "crap-go: could not read metrics.crap_ceiling.value from ${ceiling_file}" >&2
+        coverage="${{ inputs.coverage }}"
+        if [ -z "$coverage" ]; then
+          coverage="${{ inputs.profile }}"
+        fi
+        if [ -z "$coverage" ]; then
+          echo "crap-go: set the 'coverage' input to a go coverage profile." >&2
           exit 2
         fi
-        extra=()
+
+        args=(--dir "${{ inputs.dir }}" --coverage "$coverage")
+        ceiling="${{ inputs.ceiling }}"
+        if [ -n "$ceiling" ]; then
+          args+=(--ceiling "$ceiling")
+        else
+          thresholds="${{ inputs.ceiling-file }}"
+          if [ -z "$thresholds" ]; then
+            thresholds="${{ inputs.thresholds }}"
+          fi
+          args+=(--thresholds "$thresholds")
+        fi
+
         changed_ref="${{ inputs.changed-ref }}"
         if [ -n "$changed_ref" ]; then
-          short="${changed_ref#origin/}"
+          # A shallow CI clone has no merge base with the target branch, so
+          # --changed would fail before it scored anything.
           if ! git rev-parse --verify "${changed_ref}^{commit}" >/dev/null 2>&1; then
-            git fetch --no-tags origin "$short"
+            git fetch --no-tags origin "${changed_ref#origin/}"
           fi
-          extra+=(--changed "$changed_ref")
+          args+=(--changed "$changed_ref")
         fi
-        crap4go --dir "${{ inputs.dir }}" --profile "${{ inputs.profile }}" --ceiling "$ceiling" "${extra[@]}"
+
+        crap4go "${args[@]}"

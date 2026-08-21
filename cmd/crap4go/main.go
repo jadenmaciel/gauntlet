@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/jadenmaciel/gauntlet/internal/crap"
+	"github.com/jadenmaciel/gauntlet/internal/thresholds"
 )
 
 var generatedHeaderRE = regexp.MustCompile(`(?m)^// Code generated .* DO NOT EDIT\.$`)
@@ -46,12 +47,16 @@ type cliReport struct {
 	Summary   cliSummary          `json:"summary"`
 }
 
+const defaultThresholdsPath = ".gauntlet/thresholds.yml"
+
+const crapCeilingMetric = "crap_ceiling"
+
 type cliOptions struct {
-	profile string
-	dir     string
-	ceiling float64
-	changed string
-	format  string
+	coverage string
+	dir      string
+	ceiling  float64
+	changed  string
+	format   string
 }
 
 func main() {
@@ -68,12 +73,12 @@ func run(args []string, stdout, stderr *os.File) int {
 		fmt.Fprintf(stderr, "crap4go: %v\n", err)
 		return 2
 	}
-	functions, err = filterChangedFunctions(options.dir, options.changed, functions)
+	functions, err = filterChangedFunctions(options.dir, options.changed, functions, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "crap4go: %v\n", err)
 		return 2
 	}
-	coverage, err := coverageFor(options.profile)
+	coverage, err := coverageFromProfile(options.dir, options.coverage)
 	if err != nil {
 		fmt.Fprintf(stderr, "crap4go: %v\n", err)
 		return 2
@@ -87,22 +92,79 @@ func run(args []string, stdout, stderr *os.File) int {
 func parseOptions(args []string, stderr *os.File) (cliOptions, error) {
 	fs := flag.NewFlagSet("crap4go", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	profile := fs.String("profile", "", "path to a go coverage profile (fed through `go tool cover -func`)")
+	coverage := fs.String("coverage", "", "path to a go coverage profile (fed through `go tool cover -func`)")
+	profile := fs.String("profile", "", "deprecated alias for -coverage")
 	dir := fs.String("dir", ".", "directory to scan for .go source files")
-	ceiling := fs.Float64("ceiling", 8, "CRAP ceiling; a function passes when CRAP <= ceiling")
+	ceiling := fs.Float64("ceiling", 0, "CRAP ceiling override; a function passes when CRAP <= ceiling (default: read from -thresholds)")
+	thresholdsPath := fs.String("thresholds", defaultThresholdsPath, "path to thresholds YAML holding metrics.crap_ceiling.value")
 	changed := fs.String("changed", "", "git ref; when set, scope to files changed since this ref (via git diff --name-only)")
 	format := fs.String("format", "text", "output format: text or json")
 	if err := fs.Parse(args); err != nil {
 		return cliOptions{}, err
 	}
 	if *format != "text" && *format != "json" {
-		fmt.Fprintf(stderr, "crap4go: invalid --format %q, want \"text\" or \"json\"\n", *format)
+		fmt.Fprintf(stderr, "crap4go: invalid -format %q, want \"text\" or \"json\"\n", *format)
 		return cliOptions{}, fmt.Errorf("invalid format")
 	}
-	return cliOptions{profile: *profile, dir: *dir, ceiling: *ceiling, changed: *changed, format: *format}, nil
+	passed := flagsPassed(fs)
+	coveragePath, err := resolveCoverage(*coverage, *profile, passed, stderr)
+	if err != nil {
+		return cliOptions{}, err
+	}
+	resolved, err := resolveCeiling(*ceiling, *thresholdsPath, passed["ceiling"], stderr)
+	if err != nil {
+		return cliOptions{}, err
+	}
+	return cliOptions{coverage: coveragePath, dir: *dir, ceiling: resolved, changed: *changed, format: *format}, nil
 }
 
-func filterChangedFunctions(dir, changed string, functions []crap.FunctionComplexity) ([]crap.FunctionComplexity, error) {
+func flagsPassed(fs *flag.FlagSet) map[string]bool {
+	passed := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { passed[f.Name] = true })
+	return passed
+}
+
+// resolveCoverage accepts -coverage or its deprecated -profile alias and
+// requires one of them. Scoring without a profile would silently treat
+// every function as untested, which reads as a real result rather than
+// as the missing input it is.
+func resolveCoverage(coverage, profile string, passed map[string]bool, stderr *os.File) (string, error) {
+	if passed["coverage"] && passed["profile"] && coverage != profile {
+		fmt.Fprintf(stderr, "crap4go: -coverage and -profile are aliases; pass only one\n")
+		return "", fmt.Errorf("conflicting coverage flags")
+	}
+	if coverage == "" {
+		coverage = profile
+	}
+	if coverage == "" {
+		fmt.Fprintf(stderr, "crap4go: -coverage is required; generate one with `go test -coverprofile=coverage.out ./...`\n")
+		return "", fmt.Errorf("missing coverage profile")
+	}
+	return coverage, nil
+}
+
+// resolveCeiling prefers an explicit -ceiling and otherwise reads
+// metrics.crap_ceiling.value from the thresholds file. It refuses to fall
+// back to a built-in number: a silent default can contradict the ceiling
+// the repository actually committed.
+func resolveCeiling(ceiling float64, thresholdsPath string, ceilingPassed bool, stderr *os.File) (float64, error) {
+	if ceilingPassed {
+		return ceiling, nil
+	}
+	file, err := thresholds.Load(thresholdsPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "crap4go: %v\ncrap4go: pass -ceiling <number>, or create %s with metrics.%s.value\n", err, thresholdsPath, crapCeilingMetric)
+		return 0, fmt.Errorf("unresolved ceiling")
+	}
+	metric, ok := file.Metrics[crapCeilingMetric]
+	if !ok {
+		fmt.Fprintf(stderr, "crap4go: %s has no metrics.%s.value; pass -ceiling <number> instead\n", thresholdsPath, crapCeilingMetric)
+		return 0, fmt.Errorf("unresolved ceiling")
+	}
+	return metric.Value, nil
+}
+
+func filterChangedFunctions(dir, changed string, functions []crap.FunctionComplexity, stderr *os.File) ([]crap.FunctionComplexity, error) {
 	if changed == "" {
 		return functions, nil
 	}
@@ -110,14 +172,10 @@ func filterChangedFunctions(dir, changed string, functions []crap.FunctionComple
 	if err != nil {
 		return nil, err
 	}
-	return crap.FilterByChangedFiles(functions, files), nil
-}
-
-func coverageFor(profile string) (map[string]float64, error) {
-	if profile == "" {
-		return map[string]float64{}, nil
+	if len(files) == 0 {
+		fmt.Fprintf(stderr, "crap4go: no files changed since %q; nothing was scored\n", changed)
 	}
-	return coverageFromProfile(profile)
+	return crap.FilterByChangedFiles(functions, files), nil
 }
 
 func sortFunctions(functions []crap.FunctionComplexity) {
@@ -250,10 +308,18 @@ func goModule(dir string) (modulePath, moduleDir string, err error) {
 	return fields[0], fields[1], nil
 }
 
-// coverageFromProfile runs `go tool cover -func=<profile>` and parses
-// its stdout.
-func coverageFromProfile(profile string) (map[string]float64, error) {
-	cmd := exec.Command("go", "tool", "cover", "-func="+profile)
+// coverageFromProfile runs `go tool cover -func` with its working directory
+// set to dir. -func resolves the package paths recorded in the profile
+// through the module found in the working directory, so running it from
+// anywhere outside that module fails; without this, -dir only ever worked
+// when the caller already happened to be inside the target module.
+func coverageFromProfile(dir, profile string) (map[string]float64, error) {
+	absProfile, err := filepath.Abs(profile)
+	if err != nil {
+		return nil, fmt.Errorf("resolving coverage profile %q: %w", profile, err)
+	}
+	cmd := exec.Command("go", "tool", "cover", "-func="+absProfile)
+	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("go tool cover -func=%s: %w", profile, err)

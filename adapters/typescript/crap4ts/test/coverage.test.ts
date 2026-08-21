@@ -110,3 +110,42 @@ test("Istanbul statements in nested functions do not affect parent coverage", ()
   assert.equal(coverage.get("src/example.ts:1:parent"), 1);
   assert.equal(coverage.get("src/example.ts:2:nested"), 0);
 });
+
+// A repo checked out behind a symlink is the normal case on macOS, where /var
+// and /tmp both resolve through /private. Relativizing a resolved coverage path
+// against an unresolved root yields a "../.." key that matches nothing, and
+// every function then silently reports 0% coverage.
+test("coverage recorded through a symlinked root still joins to the scanned file", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "crap4ts-symlink-"));
+  const realRoot = path.join(base, "real");
+  fs.mkdirSync(path.join(realRoot, "src"), { recursive: true });
+  const sourcePath = path.join(realRoot, "src", "example.ts");
+  fs.writeFileSync(sourcePath, "export class Example {\n  method(x: number) {\n    return x > 0 ? 1 : 0;\n  }\n}\n", "utf8");
+
+  const linkRoot = path.join(base, "link");
+  fs.symlinkSync(realRoot, linkRoot);
+
+  const coveragePath = path.join(base, "coverage-final.json");
+  fs.writeFileSync(
+    coveragePath,
+    JSON.stringify({
+      [fs.realpathSync(sourcePath)]: {
+        fnMap: {
+          "0": {
+            name: "(anonymous_0)",
+            decl: { start: { line: 2 }, end: { line: 2 } },
+            loc: { start: { line: 2 }, end: { line: 4 } },
+          },
+        },
+        f: { "0": 1 },
+        statementMap: { "0": { start: { line: 3 }, end: { line: 3 } } },
+        s: { "0": 1 },
+      },
+    }),
+    "utf8",
+  );
+
+  const coverage = readCoverage(coveragePath, linkRoot, [method]);
+
+  assert.equal(coverage.get("src/example.ts:2:Example.method"), 1);
+});

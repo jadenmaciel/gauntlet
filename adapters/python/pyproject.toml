@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gauntlet-crap4py"
+version = "0.2.0"
+description = "CRAP scorer for Python: cyclomatic complexity joined with coverage.py Cobertura XML"
+readme = "README.md"
+# 3.10 is a hard floor, not a preference: the complexity visitor references
+# ast.Match and ast.MatchAs, which do not exist before 3.10.
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Jaden Maciel" }]
+keywords = ["crap", "cyclomatic-complexity", "coverage", "code-quality", "ci"]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/jadenmaciel/gauntlet"
+Source = "https://github.com/jadenmaciel/gauntlet/tree/main/adapters/python"
+
+[project.scripts]
+crap4py = "crap4py:main"
+
+[tool.setuptools]
+py-modules = ["crap4py"]

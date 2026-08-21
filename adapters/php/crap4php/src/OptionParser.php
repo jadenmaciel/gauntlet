@@ -16,6 +16,7 @@ final class OptionParser
         $ceiling = null;
         $thresholds = '.gauntlet/thresholds.yml';
         $format = 'text';
+        $changed = '';
 
         for ($i = 0; $i < count($args); $i++) {
             $arg = $args[$i];
@@ -43,6 +44,10 @@ final class OptionParser
                 $thresholds = $this->nextValue($args, ++$i, '--thresholds');
                 continue;
             }
+            if ($arg === '--changed') {
+                $changed = $this->nextValue($args, ++$i, '--changed');
+                continue;
+            }
             if ($arg === '--format') {
                 $format = $this->nextValue($args, ++$i, '--format');
                 continue;
@@ -61,6 +66,7 @@ final class OptionParser
             ceiling: $ceiling,
             thresholds: $thresholds,
             format: $format,
+            changed: $changed,
         );
     }
 

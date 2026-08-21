@@ -1,0 +1,131 @@
+# Machine-readable adapter manifest. This file is the single source of truth for
+# how to install and run each scorer; README.md and SKILL.md must agree with it,
+# and .github/workflows/ci.yml enforces that (see scripts/check-docs-drift.py).
+#
+# An agent should read THIS file, not the prose, and follow `agent_procedure`.
+version: 1
+
+formula: "CRAP = CC^2 * (1 - cov)^3 + CC"
+interpretation:
+  - range: "1-5"
+    meaning: clean
+  - range: "5-30"
+    meaning: moderate risk
+  - range: "30+"
+    meaning: crappy; refactor or test before extending
+
+thresholds_file: .gauntlet/thresholds.yml
+thresholds_key: metrics.crap_ceiling.value
+
+# Identical in all five scorers as of v0.2.0.
+cli:
+  flags:
+    dir: "root to scan for source files (default .)"
+    coverage: "coverage report to read"
+    thresholds: "YAML holding metrics.crap_ceiling.value (default .gauntlet/thresholds.yml)"
+    ceiling: "numeric override; wins over --thresholds"
+    changed: "git ref; score only files changed since it (unset = whole tree)"
+    format: "text or json (default text)"
+  ceiling_precedence: ["--ceiling", "--thresholds", "error"]
+  exit_codes:
+    0: pass
+    1: at least one function is over the ceiling
+    2: usage or I/O error
+  json_keys:
+    root: [ceiling, functions, summary]
+    function: [file, line, func, complexity, coverage, crap, pass]
+    summary: [total, failing, max_crap]
+
+languages:
+  go:
+    scorer: crap4go
+    runtime: "Go >= 1.26.4 (the go.mod toolchain floor)"
+    detect: ["go.mod"]
+    install: "go install github.com/jadenmaciel/gauntlet/cmd/crap4go@v0.2.0"
+    coverage_command: "go test -coverprofile=coverage.out ./..."
+    coverage_format: "go-cover-profile"
+    coverage_default: null
+    coverage_required: true
+    score: "crap4go --dir . --coverage coverage.out --thresholds .gauntlet/thresholds.yml"
+    aliases:
+      coverage: "--profile"
+    action: jadenmaciel/gauntlet/.github/actions/crap-go@v0.2.0
+    notes: >
+      File keys are Go module-import paths (github.com/you/repo/pkg/file.go), not
+      repo-relative paths, because that is what `go tool cover -func` prints.
+  python:
+    scorer: crap4py
+    runtime: "Python >= 3.10 (the complexity visitor uses ast.Match / ast.MatchAs)"
+    detect: ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
+    install: 'pip install "git+https://github.com/jadenmaciel/gauntlet@v0.2.0#subdirectory=adapters/python"'
+    coverage_command: "python3 -m coverage run -m pytest && python3 -m coverage xml -o coverage.xml"
+    coverage_format: "cobertura-xml"
+    coverage_default: coverage.xml
+    coverage_required: false
+    score: "crap4py --dir . --coverage coverage.xml --thresholds .gauntlet/thresholds.yml"
+    aliases: {}
+    action: jadenmaciel/gauntlet/.github/actions/crap-python@v0.2.0
+    notes: >
+      crap4py.py imports nothing outside the standard library, so vendoring the
+      single file works as well as installing it.
+  rust:
+    scorer: crap4rs
+    runtime: "Rust stable, plus llvm-tools-preview and cargo-llvm-cov"
+    detect: ["Cargo.toml"]
+    install: "cargo install --git https://github.com/jadenmaciel/gauntlet --tag v0.2.0 crap4rs"
+    coverage_command: "cargo llvm-cov --json --output-path target/llvm-cov.json"
+    coverage_format: "llvm-cov-json"
+    coverage_default: target/llvm-cov.json
+    coverage_required: false
+    score: "crap4rs --dir . --coverage target/llvm-cov.json --thresholds .gauntlet/thresholds.yml"
+    aliases:
+      coverage: "--coverage-json"
+      thresholds: "--ceiling-file"
+    action: jadenmaciel/gauntlet/.github/actions/crap-rust@v0.2.0
+    notes: >
+      Needs `rustup component add llvm-tools-preview` and
+      `cargo install cargo-llvm-cov --locked` before the coverage command.
+  typescript:
+    scorer: crap4ts
+    runtime: "Node >= 20.6 (the test runner uses node --import)"
+    detect: ["tsconfig.json", "package.json"]
+    install: "git clone --depth 1 --branch v0.2.0 https://github.com/jadenmaciel/gauntlet .tools/gauntlet && npm --prefix .tools/gauntlet/adapters/typescript/crap4ts ci && npm --prefix .tools/gauntlet/adapters/typescript/crap4ts run build"
+    coverage_command: "npx c8 --reporter=json npm test"
+    coverage_format: "istanbul-json-or-lcov"
+    coverage_default: coverage/coverage-final.json
+    coverage_required: false
+    score: "node .tools/gauntlet/adapters/typescript/crap4ts/dist/cli.js --dir . --coverage coverage/coverage-final.json --thresholds .gauntlet/thresholds.yml"
+    aliases: {}
+    action: jadenmaciel/gauntlet/.github/actions/crap-typescript@v0.2.0
+    notes: >
+      Reads istanbul coverage-final.json or an lcov.info. Replace the coverage
+      command with whatever your repo already uses (jest --coverage, vitest
+      --coverage, nyc) as long as it emits one of those two formats.
+  php:
+    scorer: crap4php
+    runtime: "PHP >= 8.2 with ext-simplexml, plus Xdebug or PCOV for coverage"
+    detect: ["composer.json"]
+    install: "git clone --depth 1 --branch v0.2.0 https://github.com/jadenmaciel/gauntlet tools/gauntlet && composer install --working-dir tools/gauntlet/adapters/php/crap4php --no-interaction"
+    coverage_command: "vendor/bin/phpunit --coverage-clover coverage.xml"
+    coverage_format: "clover-xml"
+    coverage_default: null
+    coverage_required: true
+    score: "php tools/gauntlet/adapters/php/crap4php/bin/crap4php --dir src --coverage coverage.xml --thresholds .gauntlet/thresholds.yml"
+    aliases: {}
+    action: jadenmaciel/gauntlet/.github/actions/crap-php@v0.2.0
+    notes: >
+      Clover XML needs a coverage driver. Without Xdebug or PCOV, phpunit emits
+      an empty report and every function scores as untested.
+
+# The decision procedure an agent should follow. Steps are ordered.
+agent_procedure:
+  - Read this file. Do not infer commands from prose.
+  - Detect the language from the `detect` globs. If more than one matches, ask which to gate.
+  - "If .gauntlet/thresholds.yml is absent: run the scorer once with --ceiling 100000 --format json,
+     read summary.max_crap, then run `gauntlet init --crap-ceiling <that value>`. Never gate an
+     existing codebase at the default placeholder."
+  - Run `coverage_command`, then `score`. Confirm the coverage file exists before scoring.
+  - Read summary.max_crap and summary.failing from --format json.
+  - "On exit 1: take the highest-CRAP function, add tests for its branches or split it, and rerun.
+     Coverage moves CRAP much faster than complexity does, because coverage is cubed."
+  - Only lower the ceiling with `gauntlet ratchet`. It may never rise.

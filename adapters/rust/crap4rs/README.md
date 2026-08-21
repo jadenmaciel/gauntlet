@@ -32,9 +32,22 @@ Then run the scorer:
 ```bash
 cargo run --manifest-path adapters/rust/crap4rs/Cargo.toml -- \
   --dir <path-to-repo> \
-  --coverage-json <path-to-repo>/target/llvm-cov.json \
+  --coverage <path-to-repo>/target/llvm-cov.json \
   --format json
 ```
 
-By default, ceiling comes from `<path-to-repo>/.gauntlet/thresholds.yml` at `metrics.crap_ceiling.value`.
-Use `--ceiling <n>` to override.
+## Flags
+
+| flag | meaning | default |
+|---|---|---|
+| `--dir` | root to scan | `.` |
+| `--coverage` | `cargo llvm-cov --json` output | `target/llvm-cov.json` |
+| `--thresholds` | YAML holding `metrics.crap_ceiling.value` | `<dir>/.gauntlet/thresholds.yml` |
+| `--ceiling` | numeric override; wins over `--thresholds` | unset |
+| `--changed` | git ref; score only files changed since it | unset = whole tree |
+| `--format` | `text` or `json` | `text` |
+
+`--coverage-json` and `--ceiling-file` are the pre-v0.2.0 names and still work.
+
+Exit codes: `0` pass, `1` a function is over the ceiling, `2` usage or I/O error. A missing
+coverage file or an unresolvable ceiling is exit 2, never a silent pass.

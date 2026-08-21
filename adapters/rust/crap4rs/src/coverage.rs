@@ -174,17 +174,28 @@ fn json_u64(value: &Value) -> Option<u64> {
 }
 
 fn normalize_path(raw: &str, root: &Path) -> String {
-    let root = fs::canonicalize(root).unwrap_or_else(|_| PathBuf::from(root));
     let candidate = PathBuf::from(raw);
-    let normalized = if candidate.is_absolute() {
-        candidate
-            .strip_prefix(&root)
-            .unwrap_or(&candidate)
-            .to_path_buf()
-    } else {
-        candidate
-    };
-    normalized.to_string_lossy().replace('\\', "/")
+    if !candidate.is_absolute() {
+        return to_slash(&candidate);
+    }
+    if let Ok(relative) = candidate.strip_prefix(root) {
+        return to_slash(relative);
+    }
+    // The coverage path did not sit under the scan root as written, so retry
+    // with symlinks resolved on both sides. llvm-cov records the path the build
+    // saw, which routinely goes through a symlink (macOS resolves /var to
+    // /private/var); stripping across that boundary strips nothing, the join
+    // key stays absolute, and every function silently reports 0% coverage.
+    let resolved_root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let resolved = fs::canonicalize(&candidate).unwrap_or_else(|_| candidate.clone());
+    match resolved.strip_prefix(&resolved_root) {
+        Ok(relative) => to_slash(relative),
+        Err(_) => to_slash(&candidate),
+    }
+}
+
+fn to_slash(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn normalize_function_name(raw: &str) -> Option<String> {
@@ -242,7 +253,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        build_coverage_map, normalize_function_name, CoverageData, CoverageExport, CoverageFunction,
+        build_coverage_map, normalize_function_name, normalize_path, CoverageData, CoverageExport,
+        CoverageFunction,
     };
     use crate::model::build_key;
 
@@ -320,5 +332,37 @@ mod tests {
             normalize_function_name("crate::generic_hot::<i32>::{{closure}}"),
             None
         );
+    }
+
+    // A repo checked out behind a symlink is the normal case on macOS, where
+    // /var and /tmp both resolve through /private. If only the root is
+    // canonicalized the prefix never strips, the join key stays absolute, and
+    // every function reads 0% coverage while the report still looks valid.
+    #[cfg(unix)]
+    #[test]
+    fn joins_coverage_recorded_through_a_symlinked_root() {
+        use std::fs;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        // See cli.rs::new_temp_dir: the clock alone collides under parallel tests.
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock before epoch")
+            .as_nanos();
+        let ordinal = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let base = std::env::temp_dir().join(format!("crap4rs-symlink-{pid}-{ordinal}-{nanos}"));
+        let real_root = base.join("real");
+        fs::create_dir_all(real_root.join("src")).expect("create real root");
+        fs::write(real_root.join("src/lib.rs"), "pub fn f() {}\n").expect("write source");
+
+        let link_root = base.join("link");
+        std::os::unix::fs::symlink(&real_root, &link_root).expect("create symlink");
+
+        let recorded = link_root.join("src/lib.rs").to_string_lossy().to_string();
+        assert_eq!(normalize_path(&recorded, &real_root), "src/lib.rs");
+        assert_eq!(normalize_path(&recorded, &link_root), "src/lib.rs");
     }
 }

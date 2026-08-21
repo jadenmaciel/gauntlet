@@ -1,145 +1,140 @@
-# Add CRAP to a repo
+# Add the CRAP gate to a repo
 
-How to install the gauntlet CRAP gate in a new repo. Go is wired end-to-end today with a composite GitHub Action. Python, Rust, TypeScript, and PHP have scorer recipes in section 6. Every scorer uses the same formula in [docs/CRAP.md](../docs/CRAP.md).
+Step-by-step adoption for one repo. All five languages are wired end-to-end: each has a
+scorer with the same flags, a composite GitHub Action, and a Makefile fragment.
 
-## 1. Install the tools
+For the commands alone, read [`adapters.yml`](../adapters.yml). For the reasoning and
+troubleshooting, read [`SKILL.md`](../SKILL.md). The metric contract is
+[`docs/CRAP.md`](../docs/CRAP.md).
 
-Pin both binaries at `v0.1.0`.
+## 1. Install the ratchet CLI
 
-```bash
-go install github.com/jadenmaciel/gauntlet/cmd/crap4go@v0.1.0
-go install github.com/jadenmaciel/gauntlet/cmd/gauntlet@v0.1.0
-```
-
-On Cursor Cloud, call [templates/cursor/cloud-install-go.sh](cursor/cloud-install-go.sh) from `.cursor/environment.json` `install`. The default install directory is `$HOME/.local/bin`. Set `GAUNTLET_BIN_DIR=bin` to match a repo `bin/` directory.
-
-For Rust, copy [templates/rust/Makefile.fragment](rust/Makefile.fragment) into your Makefile. Set `GAUNTLET_VERSION` to a release that contains `crap4rs`. Then run:
+`gauntlet` manages the threshold file. It is a Go binary regardless of the language you gate.
 
 ```bash
-make crap-rust GAUNTLET_VERSION=<release>
+go install github.com/jadenmaciel/gauntlet/cmd/gauntlet@v0.2.0
 ```
 
-The target generates `cargo llvm-cov` JSON. It runs `bin/crap4rs` with `--ceiling` set from `.gauntlet/thresholds.yml`.
+On Cursor Cloud, call [`templates/cursor/cloud-install-go.sh`](cursor/cloud-install-go.sh) from
+`.cursor/environment.json` `install`. It installs into `$HOME/.local/bin`, or into
+`GAUNTLET_BIN_DIR` if you set it.
 
-## 2. Set the ceiling from a measured baseline
+Then install the scorer for your language — the `install` line from
+[`adapters.yml`](../adapters.yml), or the per-language block in
+[`README.md`](../README.md#per-language-setup).
 
-Create `.gauntlet/thresholds.yml` if the file is missing.
+## 2. Measure before you gate
+
+This is the step people skip, and skipping it is why a new gate fails on its first run
+against code nobody touched.
+
+Generate real coverage, then score with a ceiling nothing can exceed:
 
 ```bash
-gauntlet init
+go test -coverprofile=coverage.out ./...
+crap4go --dir . --coverage coverage.out --ceiling 100000 --format json
 ```
 
-`gauntlet init` writes `crap_ceiling.value: 8`. Policy E for a brownfield tree is different. Measure first. Write that measured maximum as the first ceiling. After that, only `gauntlet ratchet` may move it, and only tighter.
+Read `summary.max_crap` from that output. That number is your starting ceiling:
+
+```bash
+gauntlet init --crap-ceiling <summary.max_crap>
+```
+
+The result:
 
 ```yaml
 metrics:
   crap_ceiling:
     direction: max
-    value: 30
+    value: 47
 ```
 
-`troute-fulfillment` ships at 30 on changed files since `origin/develop`. Use 30 when your measured max is 30. Otherwise write the number you measured.
+`gauntlet init` **without** `--crap-ceiling` writes `8` and marks it `PLACEHOLDER` in the file.
+That is a refusal to guess, not a recommendation — very few existing codebases start under 8.
+
+From here the ceiling may only fall, and only through the CLI:
 
 ```bash
-go test -coverprofile=coverage.out ./...
-crap4go --dir . --profile coverage.out --format json
-```
-
-A non-zero exit is expected until the ceiling exists. Read `summary.max_crap` and put that number in `crap_ceiling.value`. Later, tighten with:
-
-```bash
-gauntlet ratchet --metric crap_ceiling --value <new-lower-number>
+gauntlet ratchet --metric crap_ceiling --value 42
+gauntlet verify  --metric crap_ceiling --value 42
 ```
 
 ## 3. Gate locally
 
-Copy the pieces you need from [templates/go/Makefile.fragment](go/Makefile.fragment). Wire `crap` into the existing `check` target.
+Copy your language's fragment into the repo Makefile and wire `crap` into the existing `check`
+target:
 
-Fetch the base branch before `--changed`. A shallow clone without `origin/<base>` fails `git merge-base`.
+| language | fragment |
+|---|---|
+| Go | [`templates/go/Makefile.fragment`](go/Makefile.fragment) |
+| Python | [`templates/python/Makefile.fragment`](python/Makefile.fragment) |
+| Rust | [`templates/rust/Makefile.fragment`](rust/Makefile.fragment) |
+| TypeScript | [`templates/typescript/Makefile.fragment`](typescript/Makefile.fragment) |
+| PHP | [`templates/php/Makefile.fragment`](php/Makefile.fragment) |
+
+Each fragment defines two targets: one that scores `--changed origin/$(BASE_BRANCH)` for the
+day-to-day gate, and an `-all` variant that scores the whole tree.
+
+Fetch the base branch before using `--changed`. A shallow clone without `origin/<base>` fails
+`git merge-base`:
+
+```bash
+git fetch --no-tags origin main
+```
 
 ## 4. Gate in GitHub Actions
 
-After tests write `coverage.out`, call the composite Action.
+After the test step writes a coverage report, call the composite action for the language.
 
 ```yaml
-- uses: jadenmaciel/gauntlet/.github/actions/crap-go@v0.1.0
+- uses: jadenmaciel/gauntlet/.github/actions/crap-go@v0.2.0
   with:
-    profile: coverage.out
-    ceiling-file: .gauntlet/thresholds.yml
+    coverage: coverage.out
+    thresholds: .gauntlet/thresholds.yml
     changed-ref: origin/main
 ```
 
-The job must already have Go on `PATH`. The Action installs pinned `crap4go`, reads `metrics.crap_ceiling.value` with the same awk as the Makefile fragment, fetches `changed-ref` when that ref is missing, and fails when any function fails.
+| language | action | toolchain the job needs first |
+|---|---|---|
+| Go | `crap-go` | `actions/setup-go` |
+| Python | `crap-python` | `actions/setup-python` |
+| Rust | `crap-rust` | a Rust toolchain, e.g. `dtolnay/rust-toolchain` |
+| TypeScript | `crap-typescript` | `actions/setup-node` |
+| PHP | `crap-php` | `shivammathur/setup-php` |
 
-Leave `changed-ref` empty to score the whole tree.
+Every action takes the same inputs: `coverage`, `dir`, `thresholds`, `ceiling`, `changed-ref`,
+`format`, `working-directory`, `version`. Each installs its scorer, fetches `changed-ref` when
+the ref is missing from a shallow clone, and fails the job when any function is over the
+ceiling. Leave `changed-ref` empty to score the whole tree.
+
+`ceiling` overrides `thresholds` when both are set. Earlier versions of the Go action scraped
+`metrics.crap_ceiling.value` out of the YAML with `awk`; every scorer now reads the file itself,
+so nothing needs to.
 
 ## 5. Cursor Cloud
 
-1. Run the install script in `environment.json` `install`.
-2. Fetch the base ref in the same install, or before the first `--changed` run.
-3. Run the same `crap4go` command CI runs.
+1. Run the install script from `environment.json` `install`.
+2. Fetch the base ref in the same install step, or before the first `--changed` run.
+3. Run the identical scorer command CI runs.
 
-Cloud is done when those three match CI, including a failing function failing the job.
+Cloud is done when all three match CI, including a failing function failing the job.
 
-## 6. Non-Go adapter recipes
+## 6. What to expect the first week
 
-Only Go has a composite GitHub Action today. Each language below ships a Makefile fragment and scorer CLI in this repo. Copy the fragment for repo wiring, generate real test coverage, then run the scorer. Policy E from section 2 applies: measure `summary.max_crap` on real coverage before the ceiling is a gate. Policy H in [docs/uncle-bob-negative-test-experiment.md](../docs/uncle-bob-negative-test-experiment.md) is linked documentation, not a product gate.
+- **The gate passes but scores nothing.** `--changed` found an empty diff. It warns on stderr;
+  check the base ref.
+- **Everything reports 0% coverage.** The coverage command did not run, wrote elsewhere, or —
+  for PHP — ran without Xdebug/PCOV. Run it on its own and inspect the report first.
+- **Exit 2 about the ceiling.** Neither `--ceiling` nor a readable `--thresholds` resolved.
+  No scorer invents a default.
 
-### Python (`crap4py`)
+Fuller list in [`SKILL.md`](../SKILL.md#troubleshooting).
 
-Use [templates/python/Makefile.fragment](python/Makefile.fragment).
+## 7. Where the ceiling should end up
 
-Install runtime tooling:
-
-```bash
-python3 -m pip install coverage
-```
-
-Generate coverage and score your repo (after vendoring `adapters/python/crap4py.py`):
-
-```bash
-python3 -m coverage run -m pytest
-python3 -m coverage xml -o coverage.xml
-python3 adapters/python/crap4py.py --dir . --coverage coverage.xml --thresholds .gauntlet/thresholds.yml --format json
-```
-
-### Rust (`crap4rs`)
-
-Use [templates/rust/Makefile.fragment](rust/Makefile.fragment).
-
-Set `GAUNTLET_VERSION` to a release that contains `crap4rs`, then run the fragment `crap4rs-tools` target. `cargo install --root` uses the repo root so the binary lands at `bin/crap4rs`:
-
-```bash
-export GAUNTLET_VERSION=<release-containing-crap4rs>
-make crap4rs-tools
-```
-
-Generate coverage and score your repo root (same flags as fragment `crap-rust`, with `--format json` to read `summary.max_crap`):
-
-```bash
-cargo llvm-cov --json --output-path target/llvm-cov.json
-bin/crap4rs --dir . --coverage-json target/llvm-cov.json --ceiling "$(awk '/^  crap_ceiling:/{found=1; next} found && /^    value:/{print $2; exit}' .gauntlet/thresholds.yml)" --format json
-```
-
-### TypeScript (`crap4ts`)
-
-Use [templates/typescript/Makefile.fragment](typescript/Makefile.fragment).
-
-Build the adapter with the fragment `gauntlet-ts-tools` target, generate real coverage, then score from your repo root:
-
-```bash
-npm run test:coverage
-node .tools/gauntlet/adapters/typescript/crap4ts/dist/cli.js --dir . --coverage coverage/coverage-final.json --thresholds .gauntlet/thresholds.yml --format json
-```
-
-### PHP (`crap4php`)
-
-Use [templates/php/Makefile.fragment](php/Makefile.fragment).
-
-The fragment assumes you vendored the adapter under `tools/crap4php`. Install it, generate PHPUnit clover coverage, then score:
-
-```bash
-composer install --working-dir tools/crap4php --no-interaction --prefer-dist
-vendor/bin/phpunit --coverage-clover build/coverage/clover.xml
-php tools/crap4php/bin/crap4php --dir . --coverage build/coverage/clover.xml --thresholds .gauntlet/thresholds.yml --format json
-```
+Do not aim for 4. The research this formula comes from found that driving CRAP down that far
+raises coverage and hurts readability without improving design — see
+[`docs/uncle-bob-negative-test-experiment.md`](../docs/uncle-bob-negative-test-experiment.md).
+Start at your measured baseline, ratchet down when a real refactor earns it, and let review
+carry the design argument.

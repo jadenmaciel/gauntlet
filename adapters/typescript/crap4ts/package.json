@@ -1,15 +1,29 @@
 {
   "name": "crap4ts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Compute CRAP scores for TypeScript functions",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jadenmaciel/gauntlet.git",
+    "directory": "adapters/typescript/crap4ts"
+  },
   "type": "module",
   "bin": {
     "crap4ts": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.6"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "score": "node dist/cli.js"
+    "score": "node dist/cli.js",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "js-yaml": "^4.1.0"

@@ -1,0 +1,83 @@
+name: crap4ts
+description: Build pinned crap4ts and fail if any TypeScript function exceeds the CRAP ceiling.
+inputs:
+  coverage:
+    description: Path to an istanbul coverage-final.json or an lcov.info.
+    required: false
+    default: coverage/coverage-final.json
+  dir:
+    description: Directory to scan for .ts/.tsx files.
+    required: false
+    default: "."
+  thresholds:
+    description: Nested thresholds YAML holding metrics.crap_ceiling.value.
+    required: false
+    default: ".gauntlet/thresholds.yml"
+  ceiling:
+    description: Numeric ceiling override. Wins over `thresholds` when set.
+    required: false
+    default: ""
+  changed-ref:
+    description: Git ref for --changed. Empty scores the whole tree.
+    required: false
+    default: ""
+  format:
+    description: text or json.
+    required: false
+    default: text
+  working-directory:
+    description: Working directory for git, coverage, and the scan.
+    required: false
+    default: "."
+  version:
+    description: gauntlet tag to build crap4ts from.
+    required: false
+    default: v0.2.0
+runs:
+  using: composite
+  steps:
+    - name: Build crap4ts
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v node >/dev/null; then
+          echo "crap-typescript: node is not on PATH. Use actions/setup-node before this Action." >&2
+          exit 2
+        fi
+        # No npm package is published yet, so build from a pinned checkout.
+        checkout="${RUNNER_TEMP}/gauntlet-crap4ts"
+        rm -rf "$checkout"
+        git clone --depth 1 --branch "${{ inputs.version }}" \
+          https://github.com/jadenmaciel/gauntlet "$checkout"
+        npm --prefix "$checkout/adapters/typescript/crap4ts" ci
+        npm --prefix "$checkout/adapters/typescript/crap4ts" run build
+        echo "CRAP4TS_BIN=$checkout/adapters/typescript/crap4ts/dist/cli.js" >> "$GITHUB_ENV"
+    - name: Run crap4ts
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CRAP_COVERAGE: ${{ inputs.coverage }}
+        CRAP_DIR: ${{ inputs.dir }}
+        CRAP_THRESHOLDS: ${{ inputs.thresholds }}
+        CRAP_CEILING: ${{ inputs.ceiling }}
+        CRAP_CHANGED: ${{ inputs.changed-ref }}
+        CRAP_FORMAT: ${{ inputs.format }}
+      run: |
+        set -euo pipefail
+        if [ ! -f "$CRAP_COVERAGE" ]; then
+          echo "crap-typescript: coverage report $CRAP_COVERAGE does not exist. Run your coverage step first." >&2
+          exit 2
+        fi
+        args=(--dir "$CRAP_DIR" --coverage "$CRAP_COVERAGE" --format "$CRAP_FORMAT")
+        if [ -n "$CRAP_CEILING" ]; then
+          args+=(--ceiling "$CRAP_CEILING")
+        else
+          args+=(--thresholds "$CRAP_THRESHOLDS")
+        fi
+        if [ -n "$CRAP_CHANGED" ]; then
+          if ! git rev-parse --verify "${CRAP_CHANGED}^{commit}" >/dev/null 2>&1; then
+            git fetch --no-tags origin "${CRAP_CHANGED#origin/}"
+          fi
+          args+=(--changed "$CRAP_CHANGED")
+        fi
+        node "$CRAP4TS_BIN" "${args[@]}"

@@ -56,7 +56,7 @@ final class ApplicationTest extends TestCase
 
     /**
      * @param list<string> $args
-     * @return array{int,string}
+     * @return array{int,string,string}
      */
     private function runApplication(array $args): array
     {
@@ -68,12 +68,160 @@ final class ApplicationTest extends TestCase
 
         $exitCode = (new Application())->run($args, $stdout, $stderr);
         rewind($stdout);
+        rewind($stderr);
         $output = stream_get_contents($stdout);
-        if ($output === false) {
-            self::fail('failed reading stdout');
+        $errors = stream_get_contents($stderr);
+        if ($output === false || $errors === false) {
+            self::fail('failed reading output streams');
         }
 
-        return [$exitCode, $output];
+        return [$exitCode, $output, $errors];
+    }
+
+    public function testChangedScopesTheReportToTouchedFiles(): void
+    {
+        $repo = $this->writeGitFixtureRepo(false);
+
+        [$exitCode, $stdout] = $this->runApplication([
+            '--dir', $repo,
+            '--coverage', $repo . '/clover.xml',
+            '--ceiling', '30',
+            '--changed', 'HEAD',
+            '--format', 'json',
+        ]);
+
+        $this->assertSame(0, $exitCode);
+        $json = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+        $files = array_values(array_unique(array_column($json['functions'], 'file')));
+        $this->assertSame(['touched.php'], $files);
+    }
+
+    public function testChangedWithAnEmptyDiffWarnsInsteadOfPassingSilently(): void
+    {
+        $repo = $this->writeGitFixtureRepo(true);
+
+        [$exitCode, $stdout, $stderr] = $this->runApplication([
+            '--dir', $repo,
+            '--coverage', $repo . '/clover.xml',
+            '--ceiling', '1',
+            '--changed', 'HEAD',
+            '--format', 'json',
+        ]);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('no files changed', $stderr);
+        $json = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(0, $json['summary']['total']);
+    }
+
+    public function testChangedWithAnUnknownRefIsAUsageError(): void
+    {
+        $repo = $this->writeGitFixtureRepo(false);
+
+        [$exitCode, , $stderr] = $this->runApplication([
+            '--dir', $repo,
+            '--coverage', $repo . '/clover.xml',
+            '--ceiling', '30',
+            '--changed', 'no-such-ref',
+        ]);
+
+        $this->assertSame(2, $exitCode);
+        $this->assertStringContainsString('merge-base', $stderr);
+    }
+
+    public function testMissingCoverageFlagIsAUsageError(): void
+    {
+        [$exitCode, , $stderr] = $this->runApplication([
+            '--dir', __DIR__ . '/fixtures',
+            '--ceiling', '30',
+        ]);
+
+        $this->assertSame(2, $exitCode);
+        $this->assertStringContainsString('--coverage is required', $stderr);
+    }
+
+    public function testMissingCoverageFileIsAUsageError(): void
+    {
+        $fixturesDir = __DIR__ . '/fixtures';
+
+        [$exitCode] = $this->runApplication([
+            '--dir', $fixturesDir,
+            '--coverage', $fixturesDir . '/absent.xml',
+            '--ceiling', '30',
+        ]);
+
+        $this->assertSame(2, $exitCode);
+    }
+
+    public function testMissingCeilingSourceIsAUsageError(): void
+    {
+        $fixturesDir = __DIR__ . '/fixtures';
+
+        [$exitCode] = $this->runApplication([
+            '--dir', $fixturesDir,
+            '--coverage', $fixturesDir . '/clover-high.xml',
+            '--thresholds', $fixturesDir . '/absent.yml',
+        ]);
+
+        $this->assertSame(2, $exitCode);
+    }
+
+    private function writeGitFixtureRepo(bool $commitEverything): string
+    {
+        $dir = sys_get_temp_dir() . '/crap4php-git-' . bin2hex(random_bytes(8));
+        if (!mkdir($dir, 0777, true) && !is_dir($dir)) {
+            self::fail('failed creating git fixture directory');
+        }
+
+        $body = "<?php\n\nfunction sample(int \$n): int\n{\n    if (\$n > 0) {\n        return 1;\n    }\n\n    return 0;\n}\n";
+        file_put_contents($dir . '/committed.php', $body);
+        file_put_contents(
+            $dir . '/clover.xml',
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<coverage clover=\"3.2.0\"><project timestamp=\"0\"/></coverage>\n"
+        );
+
+        $this->git($dir, ['init', '-q']);
+        $this->git($dir, ['add', '.']);
+        $this->commit($dir, 'initial');
+
+        file_put_contents($dir . '/touched.php', $body);
+        if ($commitEverything) {
+            $this->git($dir, ['add', '.']);
+            $this->commit($dir, 'second');
+        }
+
+        return $dir;
+    }
+
+    /**
+     * @param list<string> $args
+     */
+    private function commit(string $dir, string $message): void
+    {
+        $this->git($dir, [
+            '-c', 'user.name=test',
+            '-c', 'user.email=test@example.com',
+            'commit', '-qm', $message,
+        ]);
+    }
+
+    /**
+     * @param list<string> $args
+     */
+    private function git(string $dir, array $args): void
+    {
+        // Ignore the developer's global and system git config. A global
+        // core.hooksPath can drop generated files into the fixture on commit,
+        // which then show up as untracked changes and skew the assertions.
+        $command = 'GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git '
+            . implode(' ', array_map('escapeshellarg', $args))
+            . ' 2>&1';
+        $output = [];
+        $status = 0;
+        exec(sprintf('cd %s && %s', escapeshellarg($dir), $command), $output, $status);
+        if ($status !== 0) {
+            self::fail('git ' . implode(' ', $args) . ': ' . implode("\n", $output));
+        }
     }
 
     private function writeTempThresholds(float $value): string

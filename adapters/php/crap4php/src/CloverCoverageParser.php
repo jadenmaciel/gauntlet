@@ -19,6 +19,15 @@ final class CloverCoverageParser
      */
     public function coverageForFunctions(string $cloverPath, array $functions): array
     {
+        // Checked before parsing: simplexml_load_file() raises a bare PHP I/O
+        // warning for a missing path, which buries the actual problem.
+        if (!is_file($cloverPath)) {
+            throw new \RuntimeException(sprintf(
+                'coverage report not found: %s (generate one with `phpunit --coverage-clover`)',
+                $cloverPath
+            ));
+        }
+
         $xml = simplexml_load_file($cloverPath);
         if ($xml === false) {
             throw new \RuntimeException(sprintf('failed reading clover XML: %s', $cloverPath));

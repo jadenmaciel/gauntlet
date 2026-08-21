@@ -196,6 +196,7 @@ mod tests {
     use super::scan_dir;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -265,12 +266,20 @@ mod tests {
         assert_eq!(functions[0].complexity, 2);
     }
 
+    // The clock alone is not a unique name. `cargo test` runs these in parallel
+    // threads and SystemTime here is only microsecond-resolution, so two
+    // fixtures really do land on the same nanos value and the second one then
+    // reuses the first's half-built directory. The counter makes the name unique
+    // per call; the pid keeps concurrent `cargo test` runs apart.
     fn new_temp_dir(prefix: &str) -> PathBuf {
-        let suffix = SystemTime::now()
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("crap4rs-{prefix}-{suffix}"));
+        let ordinal = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("crap4rs-{prefix}-{pid}-{ordinal}-{nanos}"));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }

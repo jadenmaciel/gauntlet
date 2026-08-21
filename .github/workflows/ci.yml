@@ -40,3 +40,53 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Test
         run: cargo test --manifest-path adapters/rust/crap4rs/Cargo.toml
+
+  python-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.10 is the declared floor (crap4py reads ast.Match), so it is tested
+        # rather than assumed.
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Test
+        run: python -m unittest adapters.python.tests.test_crap4py -v
+      - name: Install the console script
+        run: python -m pip install ./adapters/python
+      - name: Smoke test the installed entry point
+        run: crap4py --help
+
+  typescript-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: adapters/typescript/crap4ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the engines floor in package.json; the test script needs
+          # `node --import`.
+          node-version: "20.6"
+          cache: npm
+          cache-dependency-path: adapters/typescript/crap4ts/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm test
+
+  docs-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check the docs against adapters.yml
+        run: python3 scripts/check-docs-drift.py

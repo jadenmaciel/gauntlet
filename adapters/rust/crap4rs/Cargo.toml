@@ -1,7 +1,15 @@
 [package]
 name = "crap4rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+# description and license are not optional metadata: `cargo publish` refuses
+# without them.
+description = "CRAP scorer for Rust: cyclomatic complexity joined with cargo-llvm-cov coverage"
+license = "MIT"
+repository = "https://github.com/jadenmaciel/gauntlet"
+readme = "README.md"
+keywords = ["crap", "complexity", "coverage", "quality", "ci"]
+categories = ["development-tools", "development-tools::testing"]
 
 [dependencies]
 proc-macro2 = { version = "1.0.101", features = ["span-locations"] }
