@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""Fail CI when the root thresholds file is a placeholder, not a measured baseline."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+THRESHOLDS = ROOT / ".gauntlet" / "thresholds.yml"
+
+
+def main() -> int:
+    if not THRESHOLDS.is_file():
+        print(f"missing {THRESHOLDS.relative_to(ROOT)}", file=sys.stderr)
+        return 1
+
+    body = THRESHOLDS.read_text(encoding="utf-8")
+    if "PLACEHOLDER" in body:
+        print(
+            f"{THRESHOLDS.relative_to(ROOT)}: contains PLACEHOLDER; "
+            "measure with --ceiling 100000 and gauntlet init --crap-ceiling",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"{THRESHOLDS.relative_to(ROOT)} is not a placeholder")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
