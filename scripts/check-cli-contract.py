@@ -8,32 +8,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
-
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-SCORER_SOURCES = {
-    "go": "cmd/crap4go/main.go",
-    "python": "adapters/python/crap4py.py",
-    "rust": "adapters/rust/crap4rs/src/cli.rs",
-    "typescript": "adapters/typescript/crap4ts/src/cli.ts",
-    "php": "adapters/php/crap4php/src/OptionParser.php",
-}
-
-
-def load_manifest() -> dict:
-    return yaml.safe_load((ROOT / "adapters.yml").read_text(encoding="utf-8"))
-
-
-def check_flags_in_source(manifest: dict) -> list[str]:
-    failures: list[str] = []
-    flags = list(manifest["cli"]["flags"])
-    for language, source in SCORER_SOURCES.items():
-        body = (ROOT / source).read_text(encoding="utf-8")
-        for flag in flags:
-            if f"--{flag}" not in body and f'"{flag}"' not in body and f"-{flag}" not in body:
-                failures.append(f"{source}: {language} scorer never mentions --{flag}")
-    return failures
+from lib.manifest import check_flags_in_source, load_manifest
 
 
 def check_json_shape(payload: dict, manifest: dict) -> list[str]:
@@ -202,8 +180,43 @@ def check_typescript(manifest: dict) -> list[str]:
     return failures
 
 
-def check_php(_manifest: dict) -> list[str]:
-    return []
+def check_php(manifest: dict) -> list[str]:
+    failures: list[str] = []
+    fixture = ROOT / "adapters/php/crap4php/tests/fixtures"
+    pkg = ROOT / "adapters/php/crap4php"
+    bin_path = pkg / "bin/crap4php"
+
+    score = run(
+        [
+            "php",
+            str(bin_path),
+            "--dir",
+            str(fixture),
+            "--coverage",
+            str(fixture / "clover-high.xml"),
+            "--ceiling",
+            "30",
+            "--format",
+            "json",
+        ]
+    )
+    if score.returncode not in (0, 1):
+        unit = run(
+            ["composer", "test", "--filter", "testJsonFormatMatchesContractShape"],
+            cwd=pkg,
+        )
+        if unit.returncode != 0:
+            detail = score.stderr.strip() or unit.stderr.strip() or "php contract check failed"
+            failures.append(detail)
+        return failures
+
+    try:
+        payload = json.loads(score.stdout)
+    except json.JSONDecodeError as err:
+        return [f"crap4php JSON parse: {err}"]
+
+    failures.extend(check_json_shape(payload, manifest))
+    return failures
 
 
 def main() -> int:

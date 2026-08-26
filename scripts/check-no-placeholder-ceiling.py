@@ -24,6 +24,16 @@ def main() -> int:
         )
         return 1
 
+    if "Baseline measured" not in body and "crap_ceiling" in body:
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("value:") and stripped.split(":", 1)[1].strip() in {"8", "8.0"}:
+                print(
+                    f"{THRESHOLDS.relative_to(ROOT)}: value 8 without measured baseline comment",
+                    file=sys.stderr,
+                )
+                return 1
+
     print(f"{THRESHOLDS.relative_to(ROOT)} is not a placeholder")
     return 0
 

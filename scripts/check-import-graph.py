@@ -72,6 +72,14 @@ def main() -> int:
             if "/adapters/" in imp:
                 failures.append(f"{rel(path)}: cmd must not import adapters directly {imp}")
 
+    for path in ROOT.rglob("*.go"):
+        rel_path = rel(path)
+        if rel_path.startswith(("cmd/", "internal/")):
+            continue
+        for imp in parse_imports(path):
+            if "github.com/jadenmaciel/gauntlet/internal" in imp:
+                failures.append(f"{rel_path}: only cmd/* may import internal/*, not {imp}")
+
     if failures:
         print("import graph violations:\n", file=sys.stderr)
         for failure in failures:

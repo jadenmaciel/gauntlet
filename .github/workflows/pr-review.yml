@@ -9,7 +9,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  bugbot:
+  trust-review:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,50 +27,12 @@ jobs:
       - name: Install PyYAML
         run: python3 -m pip install --quiet "PyYAML>=6,<7"
 
+      - name: Fetch PR base for diff-based checks
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
       - name: Collect review signals
         id: signals
-        run: |
-          set +e
-          findings=""
-          add() { findings="${findings}$1\n"; }
-
-          if ! python3 scripts/check-pr-boundary.py "origin/${{ github.base_ref }}"; then
-            add "- **Boundary:** PR touches both \`internal/\` and \`adapters/\`, or adds Go source without tests."
-          fi
-
-          if ! python3 scripts/check-docs-drift.py; then
-            add "- **Docs drift:** README or SKILL diverged from \`adapters.yml\`."
-          fi
-
-          go test -coverprofile=coverage.out ./... >/dev/null 2>&1
-          go install ./cmd/crap4go
-          if ! crap4go --dir . --coverage coverage.out --thresholds .gauntlet/thresholds.yml --changed "origin/${{ github.base_ref }}" --format json > crap-pr.json 2>crap-pr.err; then
-            if [ -s crap-pr.json ]; then
-              failing=$(python3 - <<'PY'
-          import json
-          data=json.load(open("crap-pr.json"))
-          print(data.get("summary",{}).get("failing", "?"))
-          PY
-          )
-              max_crap=$(python3 - <<'PY'
-          import json
-          data=json.load(open("crap-pr.json"))
-          print(data.get("summary",{}).get("max_crap", "?"))
-          PY
-          )
-              add "- **CRAP regression:** ${failing} changed function(s) over ceiling (max CRAP ${max_crap})."
-            else
-              add "- **CRAP check failed:** $(tr '\n' ' ' < crap-pr.err)"
-            fi
-          fi
-
-          if [ -z "$findings" ]; then
-            echo "status=pass" >> "$GITHUB_OUTPUT"
-            echo "body=### Gauntlet trust review\n\nAll automated checks passed for this PR shape." >> "$GITHUB_OUTPUT"
-          else
-            echo "status=fail" >> "$GITHUB_OUTPUT"
-            printf 'body=### Gauntlet trust review\n\n%s\n' "$findings" >> "$GITHUB_OUTPUT"
-          fi
+        run: python3 scripts/collect-pr-signals.py "origin/${{ github.base_ref }}"
 
       - name: Comment on PR
         uses: actions/github-script@v7
