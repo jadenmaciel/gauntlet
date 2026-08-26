@@ -10,16 +10,11 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.manifest import SCORER_SOURCES, check_flags_in_source, load_manifest
 
 DOCS = ["README.md", "SKILL.md"]
-
-SCORER_SOURCES = {
-    "go": "cmd/crap4go/main.go",
-    "python": "adapters/python/crap4py.py",
-    "rust": "adapters/rust/crap4rs/src/cli.rs",
-    "typescript": "adapters/typescript/crap4ts/src/cli.ts",
-    "php": "adapters/php/crap4php/src/OptionParser.php",
-}
 
 CURRENT_TAG = "v0.2.0"
 STALE_TAG_PATTERN = re.compile(r"@v0\.1\.0|--tag v0\.1\.0|branch v0\.1\.0|VERSION \?= v0\.1\.0")
@@ -45,12 +40,8 @@ def check_manifest_commands(manifest: dict, failures: list[str]) -> None:
 
 
 def check_flags_exist(manifest: dict, failures: list[str]) -> None:
-    flags = list(manifest["cli"]["flags"])
-    for language, source in SCORER_SOURCES.items():
-        body = read(source)
-        for flag in flags:
-            if f"--{flag}" not in body and f'"{flag}"' not in body:
-                failures.append(f"{source}: {language} scorer never mentions --{flag}")
+    for failure in check_flags_in_source(manifest):
+        failures.append(failure)
 
 
 def check_actions_exist(manifest: dict, failures: list[str]) -> None:
@@ -105,7 +96,7 @@ def check_no_ceiling_scraping(failures: list[str]) -> None:
 
 
 def main() -> int:
-    manifest = yaml.safe_load(read("adapters.yml"))
+    manifest = load_manifest()
     failures: list[str] = []
 
     check_manifest_commands(manifest, failures)

@@ -1,0 +1,18 @@
+# Quality threshold ratchet. Floors (direction: min) may only rise;
+# ceilings (direction: max) may only fall. Use "gauntlet ratchet" to move
+# a value, never hand-edit it downward/upward.
+#
+# Baseline measured 2026-08-26: crap4go --ceiling 100000 on full tree.
+metrics:
+  crap_ceiling:
+    direction: max
+    value: 10.75
+  mutation_efficacy:
+    direction: min
+    value: 0
+  mutation_mcover:
+    direction: min
+    value: 0
+  coverage_min:
+    direction: min
+    value: 80

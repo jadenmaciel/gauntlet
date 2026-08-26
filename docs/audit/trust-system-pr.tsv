@@ -1,0 +1,9 @@
+ts	phase	decision	why	evidence	result
+2026-08-26T16:55:00Z	frame	split CONTEXT + ARCHITECTURE + slim AGENTS	user chose B in grill; avoids second SSOT	grill Q1	locked
+2026-08-26T16:55:00Z	frame	Layer D in gauntlet only not jstack	user runs pstack not jstack	grill Q2	locked
+2026-08-26T16:55:00Z	frame	one atomic PR docs+CI+Bugbot	user chose A+A on Q3/Q4	grill Q3-Q4	locked
+2026-08-26T16:55:00Z	frame	consumer rollout after dogfood on 5 repos + epayment local	grill Q5-Q6	grill Q5-Q6	locked
+2026-08-26T16:56:00Z	implement	measured baseline max_crap 10.75 for root thresholds	prove-it-works on real scorer go test + crap4go	local run	open
+2026-08-26T16:56:00Z	implement	add import-graph cli-contract placeholder self-gate scripts	encode-lessons-in-structure	scripts/*.py	VERIFIED
+2026-08-26T17:05:00Z	verify	all local gates PASS before push	go test + contract scripts + self-gate	local run	VERIFIED
+2026-08-26T17:06:00Z	ship	opened PR #8 on trust-system/contract-and-ci	user confirmed Q7 yes	https://github.com/jadenmaciel/gauntlet/pull/8	open
